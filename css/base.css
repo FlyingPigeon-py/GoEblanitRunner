@@ -853,6 +853,72 @@ canvas { display: block; width: 100%; height: 100%; }
   .skin-label { display: none; }
 }
 
+/* ---------- телефон ---------- */
+.tap-pad { display: none; }
+@media (hover: none) and (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
+  .game-shell { min-height: calc(100svh - 24px); }
+  .stage { aspect-ratio: auto; height: 100vw; max-height: calc(100svh - 240px); min-height: 280px; }
+  .tap-pad {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 110px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px 18px;
+    border: 1.5px dashed var(--line);
+    border-radius: 18px;
+    background: var(--panel);
+    color: var(--muted);
+    text-align: center;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color .08s;
+  }
+  .tap-pad.down { background: var(--card); border-color: var(--muted); }
+  .tap-main {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 22px;
+    line-height: 1.1;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .tap-sub { font-size: 12.5px; line-height: 1.4; max-width: 34ch; text-wrap: balance; }
+  .game-shell.is-full .tap-pad { min-height: 90px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  body { padding: 6px max(10px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left)); }
+  .wrap { gap: 10px; }
+  .game-shell { height: calc(100svh - 16px); gap: 6px; }
+  .hud { grid-template-columns: auto auto auto minmax(0, 1fr) auto; column-gap: 18px; row-gap: 0; align-items: center; }
+  .hud .clock { grid-area: 1 / 1; }
+  .hud .score { grid-area: 1 / 2; }
+  .hud .best { grid-area: 1 / 3; align-items: flex-start; text-align: left; }
+  .hud-actions { grid-area: 1 / 5; justify-self: end; gap: 6px; }
+  .stat { gap: 1px; }
+  .stat .label { font-size: 9.5px; letter-spacing: .08em; }
+  .stat .val { font-size: 17px; }
+  .stat.clock { gap: 6px; }
+  .stat.clock .stat-text { gap: 1px; }
+  .stat.clock .val { font-size: 20px; }
+  .alarm { width: 26px; height: 26px; }
+  .icon-btn, .hud-actions .icon-btn { width: 34px; height: 34px; border-radius: 10px; }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .stage { flex: 1 1 auto; aspect-ratio: auto; height: auto; min-height: 0; max-height: none; border-radius: 12px; }
+  .game-shell.is-full { padding-top: max(6px, env(safe-area-inset-top)); padding-bottom: max(6px, env(safe-area-inset-bottom)); gap: 6px; }
+  .game-shell.is-full .stage { max-height: none; }
+  .chip-best { display: none !important; }
+  .chip { font-size: 11.5px; padding: 3px 9px; }
+  .toasts { top: 6px; right: 6px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .view, .result, .stamp, .toast-stamp { animation: none; }
   .meter i, .meter.fever i, .meter.ending i { animation: none; transition: none; }

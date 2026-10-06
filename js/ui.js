@@ -998,4 +998,27 @@
     });
     renderFull();
   }
+
+  // ---------- тап-зона под полем на телефоне ----------
+  const tapPad = $('tapPad');
+  const tapMain = $('tapMain');
+  const TAP_TEXT = { start: 'Тап — начать', run: 'Тап — прыжок', pause: 'Тап — продолжить', over: 'Тап — ещё раз' };
+  function renderTap() {
+    if (tapMain) tapMain.textContent = TAP_TEXT[G.state.mode] || TAP_TEXT.run;
+  }
+  if (tapPad) {
+    tapPad.addEventListener('pointerdown', (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      e.preventDefault();
+      tapPad.classList.add('down');
+      G.press('pointer');
+    });
+    const up = () => tapPad.classList.remove('down');
+    tapPad.addEventListener('pointerup', up);
+    tapPad.addEventListener('pointercancel', up);
+    tapPad.addEventListener('pointerleave', up);
+    tapPad.addEventListener('contextmenu', (e) => e.preventDefault());
+    for (const evt of ['boot', 'start', 'pause', 'resume', 'gameover']) G.on(evt, renderTap);
+    renderTap();
+  }
 })();
