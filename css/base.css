@@ -172,7 +172,7 @@ kbd {
 }
 
 .wrap {
-  max-width: 960px;
+  max-width: 1440px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -299,8 +299,8 @@ kbd {
   max-width: 100%;
   aspect-ratio: 2 / 1;
   min-height: 300px;
-  max-height: 480px;
-  max-height: min(480px, calc(100svh - 150px));
+  max-height: 640px;
+  max-height: min(820px, calc(100svh - 132px));
   border-radius: 20px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -314,6 +314,28 @@ kbd {
   cursor: pointer;
 }
 .stage.playing { touch-action: none; }
+
+/* ---------- на весь экран ---------- */
+.game-shell { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.game-shell.is-full {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.game-shell.is-pseudo { position: fixed; inset: 0; z-index: 50; }
+.game-shell.is-full .stage {
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+  min-height: 0;
+  max-height: max(300px, 95vw);
+  margin-block: auto;
+  border-radius: 14px;
+}
+html.full-lock, html.full-lock body { overflow: hidden; }
 canvas { display: block; width: 100%; height: 100%; }
 
 .overlay { position: absolute; inset: 0; container-type: inline-size; }
@@ -793,7 +815,7 @@ canvas { display: block; width: 100%; height: 100%; }
 @media (max-width: 719px) {
   body { padding-top: 12px; }
   .wrap { gap: 12px; }
-  .hud { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; row-gap: 10px; }
+  .hud { grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; row-gap: 10px; }
   .hud .clock { grid-area: 1 / 1; }
   .hud-actions { grid-area: 1 / 2; justify-self: end; gap: 6px; }
   .hud .score { grid-area: 2 / 1; }
@@ -821,6 +843,8 @@ canvas { display: block; width: 100%; height: 100%; }
   .toast-text { font-size: 12.5px; }
 }
 @media (max-width: 380px) {
+  .hud-actions { gap: 4px; }
+  .hud-actions .icon-btn { width: 36px; height: 36px; border-radius: 11px; }
   .stat .label { font-size: 10.5px; letter-spacing: .07em; }
   .stat .val { font-size: 19px; }
   .stats > div { padding: 0 3px; }

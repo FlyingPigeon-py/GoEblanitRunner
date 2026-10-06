@@ -17,6 +17,7 @@
 <div class="wrap">
   <h1 class="sr-only">Давай ебланить</h1>
 
+  <section class="game-shell" id="gameShell" aria-label="Игра">
   <header class="hud">
     <div class="stat clock" id="hudClockBox">
       <svg class="alarm" aria-hidden="true" id="hudAlarm" viewBox="0 0 40 40">
@@ -48,6 +49,7 @@
       <button type="button" class="icon-btn" id="pauseBtn" aria-label="Пауза" title="Пауза (P)" disabled></button>
       <button type="button" class="icon-btn" id="musicBtn" aria-label="Музыка" aria-pressed="false" title="Музыка" hidden></button>
       <button type="button" class="icon-btn" id="mute" aria-label="Выключить звук" title="Звук (M)"></button>
+      <button type="button" class="icon-btn" id="fullBtn" aria-label="На весь экран" title="На весь экран (F)"></button>
     </div>
   </header>
 
@@ -116,10 +118,11 @@
     </div>
     <div class="toasts" id="toast" role="status" aria-live="polite"></div>
   </div>
+  </section>
 
   <p class="hint">
-    <span class="desk-only"><kbd>Пробел</kbd> или <kbd>↑</kbd> — прыжок, в воздухе ещё раз — двойной. <kbd>↓</kbd> — быстро вниз, <kbd>P</kbd> — пауза, <kbd>M</kbd> — звук.</span>
-    <span class="touch-only">Тап — прыжок, в воздухе ещё тап — двойной.</span>
+    <span class="desk-only"><kbd>Пробел</kbd> или <kbd>↑</kbd> — прыжок, в воздухе ещё раз — двойной. <kbd>↓</kbd> — быстро вниз, <kbd>P</kbd> — пауза, <kbd>M</kbd> — звук, <kbd>F</kbd> — на весь экран.</span>
+    <span class="touch-only">Тап — прыжок, в воздухе ещё тап — двойной. Кнопка в правом верхнем углу — на весь экран.</span>
     Будильники и таски перепрыгивай, под созвоном лучше пробежать.<span id="hintModes" hidden> Прыгни на будильник сверху — отложишь его. Рискуешь — копишь Ебланометр.</span> Красный «!» — новая гадость, смотри внимательно. Морковка — бонусные минуты ебланства, остальное на диване тоже не просто так.
   </p>
 

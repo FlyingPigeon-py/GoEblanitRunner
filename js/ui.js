@@ -61,6 +61,8 @@
     record: SVG('<path d="M3.5 8.2 8 12l4-6.8 4 6.8 4.5-3.8-1.8 10.3H5.3z"/>', 'fill="currentColor"'),
     skin: SVG('<ellipse cx="8.6" cy="7" rx="2.3" ry="5.2" transform="rotate(-12 8.6 7)"/><ellipse cx="15.4" cy="7" rx="2.3" ry="5.2" transform="rotate(12 15.4 7)"/><circle cx="12" cy="15.5" r="6.5"/>', 'fill="currentColor"'),
     info: SVG('<circle cx="12" cy="12" r="3.5"/>', 'fill="currentColor"'),
+    expand: SVG('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
+    shrink: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
     mission: SVG('<rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>', 'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"'),
     boss: SVG('<rect x="2.5" y="6.5" width="12.5" height="11" rx="2.5"/><path d="M15 10.5 21 7.5v9l-6-3z"/>', 'fill="currentColor"'),
     grade: SVG('<path d="m12 2.8 2.75 5.6 6.15.9-4.45 4.33 1.05 6.12L12 16.86 6.5 19.75l1.05-6.12L3.1 9.3l6.15-.9z"/>', 'fill="currentColor"'),
@@ -919,5 +921,81 @@
   for (const k in themeBtns) {
     const btn = themeBtns[k];
     if (btn) btn.addEventListener('click', () => applyTheme(k, true));
+  }
+
+  // ---------- на весь экран ----------
+  // Где браузер не даёт настоящий полноэкранный режим (iPhone, встроенные окна), растягиваем блок игры на всю вкладку.
+  const shell = $('gameShell');
+  const fullBtn = $('fullBtn');
+  let pseudoFull = false;
+  const nativeFullEl = () => doc.fullscreenElement || doc.webkitFullscreenElement || null;
+  const isFull = () => pseudoFull || (!!shell && nativeFullEl() === shell);
+  function renderFull() {
+    if (!shell || !fullBtn) return;
+    const on = isFull();
+    shell.classList.toggle('is-full', on);
+    shell.classList.toggle('is-pseudo', pseudoFull);
+    root.classList.toggle('full-lock', pseudoFull);
+    fullBtn.innerHTML = on ? ICON.shrink : ICON.expand;
+    fullBtn.setAttribute('aria-label', on ? 'Выйти из полноэкранного режима' : 'На весь экран');
+    fullBtn.title = on ? 'Свернуть (F)' : 'На весь экран (F)';
+  }
+  function setPseudo(on) {
+    pseudoFull = !!on;
+    renderFull();
+  }
+  function lockLandscape() {
+    const o = window.screen && window.screen.orientation;
+    const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (o && typeof o.lock === 'function' && coarse) {
+      try { const p = o.lock('landscape'); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    }
+  }
+  function enterFull() {
+    const req = shell && (shell.requestFullscreen || shell.webkitRequestFullscreen);
+    if (req) {
+      try {
+        const p = req.call(shell, { navigationUI: 'hide' });
+        if (p && typeof p.then === 'function') {
+          let settled = false;
+          p.then(() => { settled = true; lockLandscape(); }, () => { settled = true; setPseudo(true); });
+          setTimeout(() => { if (!settled && !isFull()) setPseudo(true); }, 600);
+        } else {
+          setTimeout(() => { if (!isFull()) setPseudo(true); else lockLandscape(); }, 350);
+        }
+        return;
+      } catch (e) {}
+    }
+    setPseudo(true);
+  }
+  function exitFull() {
+    if (pseudoFull) {
+      setPseudo(false);
+      return;
+    }
+    const exit = doc.exitFullscreen || doc.webkitExitFullscreen;
+    if (exit && nativeFullEl()) {
+      try { const p = exit.call(doc); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    }
+  }
+  const toggleFull = () => (isFull() ? exitFull() : enterFull());
+  if (shell && fullBtn) {
+    const onNativeChange = () => {
+      if (nativeFullEl() === shell) pseudoFull = false;
+      renderFull();
+    };
+    doc.addEventListener('fullscreenchange', onNativeChange);
+    doc.addEventListener('webkitfullscreenchange', onNativeChange);
+    fullBtn.addEventListener('click', (e) => {
+      toggleFull();
+      blurAfterPointer(e, fullBtn);
+    });
+    G.on('key', (e) => {
+      if (e && e.code === 'KeyF' && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) toggleFull();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape' && pseudoFull) setPseudo(false);
+    });
+    renderFull();
   }
 })();

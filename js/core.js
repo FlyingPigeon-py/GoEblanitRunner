@@ -33,6 +33,7 @@
     nearMargin: 14,
     hitbox: { dx: 2, dy: 22, r: 18 },
     dtMax: 0.04,
+    maxCanvasPx: 4.2e6,
   };
 
   G.stage = document.getElementById('stage');
@@ -658,7 +659,7 @@
   G.resize = () => {
     const r = G.stage.getBoundingClientRect();
     if (!r.width || !r.height) return;
-    G.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    G.dpr = Math.max(0.5, Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(G.cfg.maxCanvasPx / (r.width * r.height))));
     G.canvas.width = Math.round(r.width * G.dpr);
     G.canvas.height = Math.round(r.height * G.dpr);
     G.scale = Math.min(r.height / G.BASE_H, r.width / G.MIN_WORLD_W);
