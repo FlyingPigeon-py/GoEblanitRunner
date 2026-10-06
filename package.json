@@ -1,0 +1,9 @@
+{
+  "name": "go-eblanit-runner",
+  "private": true,
+  "description": "Браузерный раннер «Давай ебланить»",
+  "scripts": {
+    "test": "node test/smoke.js && node test/fairness.js",
+    "build": "node build.js"
+  }
+}

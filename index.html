@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Давай ебланить</title>
+<meta name="description" content="Белый кролик ебланит на диване: перепрыгивает будильники, стопки срочных тасок и созвоны.">
+<meta name="theme-color" content="#efe5d3" id="themeColor">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cpath d='M4.5 13.5a8 8 0 0 1 10-10zM35.5 13.5a8 8 0 0 0-10-10z' fill='%23ad7330'/%3E%3Ccircle cx='20' cy='22' r='14' fill='%23d79a4b'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%23fffdf7'/%3E%3Cpath d='M20 22v-6.5M20 22l-3.4-7.6' stroke='%232a2118' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Golos+Text:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/meta.css">
+</head>
+<body>
+<div class="wrap">
+  <h1 class="sr-only">Давай ебланить</h1>
+
+  <header class="hud">
+    <div class="stat clock" id="hudClockBox">
+      <svg class="alarm" aria-hidden="true" id="hudAlarm" viewBox="0 0 40 40">
+        <path class="alarm-bell" d="M4.5 13.5a8 8 0 0 1 10-10zM35.5 13.5a8 8 0 0 0-10-10z"/>
+        <path class="alarm-leg" d="M11 33.5 7.5 38M29 33.5l3.5 4.5M20 8V5"/>
+        <circle class="alarm-bell" cx="20" cy="4.2" r="2"/>
+        <circle class="alarm-rim" cx="20" cy="22" r="14"/>
+        <circle class="alarm-face" cx="20" cy="22" r="11"/>
+        <path class="alarm-ticks" d="M20 12.8v2M29.2 22h-2M20 31.2v-2M10.8 22h2"/>
+        <line class="alarm-hand alarm-h" id="alarmH" x1="20" y1="22" x2="20" y2="16.2" transform="rotate(270 20 22)"/>
+        <line class="alarm-hand alarm-m" id="alarmM" x1="20" y1="22" x2="20" y2="13.6"/>
+        <circle class="alarm-pin" cx="20" cy="22" r="1.7"/>
+      </svg>
+      <div class="stat-text">
+        <span class="label">на часах</span>
+        <span class="val" id="hudClock">09:00</span>
+      </div>
+    </div>
+    <div class="stat score" id="hudScoreBox">
+      <span class="label" id="hudScoreLabel">ебланство</span>
+      <span class="val"><span class="num" id="hudScore">0 мин</span><span class="combo" id="hudCombo" hidden></span></span>
+      <span class="meter" id="hudMeter" role="meter" aria-label="Ебланометр" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden></span>
+    </div>
+    <div class="stat best" id="hudBestBox">
+      <span class="label">рекорд</span>
+      <span class="val" id="hudBest">—</span>
+    </div>
+    <div class="hud-actions">
+      <button type="button" class="icon-btn" id="pauseBtn" aria-label="Пауза" title="Пауза (P)" disabled></button>
+      <button type="button" class="icon-btn" id="musicBtn" aria-label="Музыка" aria-pressed="false" title="Музыка" hidden></button>
+      <button type="button" class="icon-btn" id="mute" aria-label="Выключить звук" title="Звук (M)"></button>
+    </div>
+  </header>
+
+  <div class="stage" id="stage">
+    <canvas id="game" role="img" aria-label="Кролик бежит по дивану и перепрыгивает будильники, стопки тасок и созвоны"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="view view-start" id="startView">
+        <div class="view-top">
+          <div class="meme meme-top">Давай ебланить</div>
+          <div class="chips">
+            <span class="chip chip-help">
+              <span class="desk-only"><kbd>Пробел</kbd> — прыжок, ещё раз — двойной</span>
+              <span class="touch-only">Тап — прыжок, ещё тап — двойной</span>
+            </span>
+            <span class="chip chip-best" id="startBest" hidden>рекорд <b id="startBestVal"></b></span>
+            <button type="button" class="chip chip-sprint" id="sprintBtn" aria-expanded="false" aria-controls="sprintBoard" hidden>Спринт</button>
+            <span class="chip chip-skin" id="skinPick" data-noinput hidden>
+              <button type="button" class="skin-step" id="skinPrev" aria-label="Предыдущий скин"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14.5 6-6 6 6 6"/></svg></button>
+              <span class="skin-name" aria-live="polite"><span class="skin-label">скин</span> <b id="skinName"></b></span>
+              <button type="button" class="skin-step" id="skinNext" aria-label="Следующий скин"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></button>
+            </span>
+          </div>
+          <div class="sprint-board" id="sprintBoard" role="list" aria-label="Тикеты спринта" data-noinput hidden></div>
+        </div>
+        <button type="button" class="meme meme-btn meme-bottom" id="startBtn"><span class="plead">Пожалуйста давай ебланить</span></button>
+      </div>
+
+      <div class="view view-over" id="overView" hidden>
+        <div class="meme meme-top">Доебланился</div>
+        <div class="result" id="resultCard" data-noinput>
+          <div class="result-head">
+            <p class="cause" id="cause"></p>
+            <span class="stamp" id="recordStamp" hidden>Новый<br>рекорд</span>
+          </div>
+          <p class="diag" id="diag" hidden></p>
+          <div class="day" id="dayStrip" hidden></div>
+          <p class="mainline" id="mainLine" hidden></p>
+          <div class="stats">
+            <div><span class="k">ебланил</span><span class="v" id="sScore"></span><span class="s" id="sClock"></span></div>
+            <div><span class="k">морковок</span><span class="v" id="sCarrots"></span><span class="s" id="sBonus"></span></div>
+            <div><span class="k">рекорд</span><span class="v" id="sBest"></span><span class="s" id="sBestNote"></span></div>
+          </div>
+          <p class="verdict" id="verdict"></p>
+          <div id="metaOver" class="meta-over" data-noinput></div>
+          <p class="share-text" id="shareText" hidden></p>
+          <div class="result-actions">
+            <button type="button" class="chip-btn" id="copyBtn" data-state="idle">
+              <svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg>
+              <svg class="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+              <span id="copyLabel">Скопировать результат</span>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="meme meme-btn meme-bottom" id="againBtn"><span class="plead">Пожалуйста давай ещё</span></button>
+      </div>
+
+      <div class="view view-pause center" id="pauseView" hidden>
+        <div class="meme meme-pause">Пауза</div>
+        <p class="sub">Ебланство никуда не денется</p>
+        <button type="button" class="chip-btn chip-btn-solid" id="resumeBtn">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+          Продолжить ебланить
+        </button>
+        <p class="sub sub-small"><span class="desk-only"><kbd>P</kbd>, <kbd>Esc</kbd> или <kbd>Пробел</kbd></span><span class="touch-only">или тапни куда угодно</span></p>
+      </div>
+    </div>
+    <div class="toasts" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <p class="hint">
+    <span class="desk-only"><kbd>Пробел</kbd> или <kbd>↑</kbd> — прыжок, в воздухе ещё раз — двойной. <kbd>↓</kbd> — быстро вниз, <kbd>P</kbd> — пауза, <kbd>M</kbd> — звук.</span>
+    <span class="touch-only">Тап — прыжок, в воздухе ещё тап — двойной.</span>
+    Будильники и таски перепрыгивай, под созвоном лучше пробежать.<span id="hintModes" hidden> Прыгни на будильник сверху — отложишь его. Рискуешь — копишь Ебланометр.</span> Красный «!» — новая гадость, смотри внимательно. Морковка — бонусные минуты ебланства, остальное на диване тоже не просто так.
+  </p>
+
+  <section id="metaPanel" class="meta-panel" aria-label="Скины и ачивки" hidden></section>
+
+  <footer class="foot">
+    <div class="seg" role="group" aria-labelledby="themeLabel">
+      <span class="seg-label" id="themeLabel">Тема</span>
+      <button type="button" class="seg-btn" id="themeAuto" aria-pressed="true">авто</button>
+      <button type="button" class="seg-btn" id="themeLight" aria-pressed="false">день</button>
+      <button type="button" class="seg-btn" id="themeDark" aria-pressed="false">ночь</button>
+    </div>
+    <p class="credit">По мотивам мема про кролика и будильник на 11:56.</p>
+  </footer>
+</div>
+<script src="js/core.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/loc-day.js"></script>
+<script src="js/loc-out.js"></script>
+<script src="js/loc-night.js"></script>
+<script src="js/bunny.js"></script>
+<script src="js/obstacles.js"></script>
+<script src="js/modes.js"></script>
+<script src="js/pickups.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/weather.js"></script>
+<script src="js/look.js"></script>
+<script src="js/balance.js"></script>
+<script src="js/meta.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/events.js"></script>
+<script src="js/boot.js"></script>
+</body>
+</html>
