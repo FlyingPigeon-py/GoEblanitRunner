@@ -20,7 +20,6 @@ html = html
   .replace(/\s*<\/head>\s*/i, '\n')
   .replace(/<body[^>]*>\s*/i, '')
   .replace(/\s*<\/body>\s*/i, '\n')
-  .replace(/<meta charset="[^"]*">\s*/i, '')
   .replace(/<meta name="viewport"[^>]*>\s*/i, '');
 
 html = html.replace(/<link rel="stylesheet" href="(css\/[^"]+)">/g, (m, href) => {

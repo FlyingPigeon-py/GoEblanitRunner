@@ -29,7 +29,7 @@
   - `invincible-marathon` — бессмертный забег через сутки (все типы препятствий, все вехи, ночь и погода);
   - `planner-desktop`, `planner-phone`, `planner-wide`, `planner-30fps` — бот-планировщик по физике ядра (с буфером прыжка) прыгает только когда нужно. Любая его смерть — провал: значит, связка препятствий нечестна при `G.cfg`.
 - Тест падает на исключениях, `G.errors`, `console.error`, NaN в состоянии и на нарушениях контракта: обязательные поля событий `powerup/powerupEnd/combo/milestone/achievement`, сигнатура `G.ui.toast`, чистые модификаторы на `start`, пауэр-ап, не закрытый к `die`, залипший модификатор `time` или флаг `invincible`, ошибки `G.renderBunnyThumb` для каждого скина. Фейковый canvas, как и браузер, бросает на отрицательных радиусах `arc/ellipse/arcTo/roundRect` и неконечных аргументах градиентов; фейковый WebAudio — на `exponentialRampToValueAtTime(0)` и повторном `start()`.
-- `node build.js` собирает всё в один файл `../davay-eblanit.html` (`<title>` в первых 8 КБ).
+- `node build.js [путь]` собирает всё в один файл (по умолчанию `dist/davay-eblanit.html`, `<title>` в первых 8 КБ); `--no-kts` — без скриптов `js/kts/`.
 
 ## Мир и координаты
 
@@ -212,3 +212,35 @@
 - `kts:event {id, phase: 'start'|'end'}` — `wifi` (П1 ставит, П3/П5/П7 реагируют), `vivi` (П1), `cakeMissed` (П1), `birthday` (П5 на старте в ноябре).
 - Тосты: `G.ui.toast(label, text, {kind})`, виды `kts`, `secret`, `duck` (П5 добавляет стили). П5 сам показывает тост на `kts:secret`, `kts:duck`, `kts:ach`, `kts:skin`.
 - Эффекты (П8): `G.fx.stamp(text, {x, alt, color, rot})`, `G.fx.react(kind, x, alt)` (`fire`, `party`, `heart`), `G.fx.ktsConfetti(n)` — фича-детект у потребителей.
+
+### API пакетов после слияния
+
+Всё ниже существует только при `G.kts.enabled`, кроме помеченного «всегда».
+
+- **Ядро:** `G.words.guard(fn(buffer, raw) → bool)` — пока хоть один охранник говорит «набирается слово», клавиши звука, музыки, полноэкранного режима и `S` не срабатывают. Охранник секретных слов ставит П6: вне забега — все слова, в забеге — только «стоп» при голосовом на экране.
+- **П1 (всегда):** `G.director.ban(types, untilT, fromT?)`, `banned(id, t)`, `queuePickup(id, {fromT, toT, double}) → {placed, dropped}` (живут один забег); `def.chaseBan`; у препятствия `o.ghost`, `o.stamp`, `o.face = {draw}`; `def.floorOf(o)`, `def.stompWord`; `G.obstacleKit`; `G.powerups.register(def)`, `G.powerups.stamp(text)`; у пикапа `def.shadowW`, `def.carrotLike` (meta считает такие пикапы морковками). Только KTS: `G.ktsItems` (`item, say, toast, popup, tOf, sprite, blit, event`).
+- **П2:** `G.modes.pushChase(delta)`, `G.modes.addMeter(delta, reason)` (всегда); событие `chase` в фазе `caught` несёт `label`. `G.kts.npc`: `lastPrediction` (ставится на `die`: `{kind, title, text, came?}` или `null`), `active()`, `claim(id)`, `release(id)`, `toxicOff()`, `setToxicOff(bool)`, `toxic()`, `_toxic(opts)`. У пикапа `leave` хук `p.leaveColor`.
+- **П3:** `G.scene.anchor(id) → {x, alt, w, h} | null` (центр в мировых координатах, только на стартовом экране); `G.sceneKit.decor(locId, layer, fn)`, `hook/call/has(name)`, `anchor(id, x, y, w, h)` (всегда). `G.ktsWorld`: `kotzilla(n)` (вариация постера), `wink(sec)`, `courier(delaySec)`, `wifiDead`, `day`, `built(key)` (спрайт декора хоть раз построен — для smoke). Событие `kts:poke {id: 'kotzilla', n}`.
+- **П4 (всегда):** `G.meta.addAchievement(def)`, `addSkinRule(id, rule)`, `addCollection(def)` (до `boot`), `notifyUnlock('ach'|'skin', id)`, `touchCollection()`; `G.sprint.setGradeName(idx, name)`, `setGradeCheer(fn)`; событие `grade` несёт `cheer`. Ачивки KTS в meta живут под id `kts.<id>`; запись в `achievements` с `counter/goal/per` открывается сама.
+- **П5 (всегда):** `G.ui.textHook(fn(key, ctx, default))`, `G.ui.rich(el, text)` (`~~зачёркнуто~~`), `G.ui.slot(view, el, 'flow'|'float')`, событие `toast {kind, label, text}`. Только KTS: `G.kts.screens.onDigest(fn(d))` — `d.icon`, `d.addNews(text)`, `d.add(node)`, `d.n`, `d.info`.
+- **П6:** `G.kts.eggs.plovLoc()`; при `?kts-debug=1` — `G.kts.eggs.force('goodButton'|'plovClue'|'kazan')`, `forceDuck(id)`. У пикапа `duck` — `p.spot` и `p.legendary`. Событие `kts:egg {id, phase}` (`kotzilla: click|meow`, `plov: clue|kazan`, `duck: tap|legend`).
+- **П7:** звук реагирует на события сам; имена в `G.sfx` — см. `notes/kts-p7.md`.
+- **П8 (всегда):** `G.fx.stamp(text, {x, alt, color, rot, life})`, `salute`, `sprite`, `flame`, `flash(alpha, color) → bool` (единственный путь к вспышке), `confetti(n, palette)`, `cannons`, `palette`; `G.look.tint(owner, color|null, a)`. Только KTS: `G.fx.react(kind, x, alt, opts)`, `G.fx.ktsConfetti(n)`, `G.fx.ktsIcon(kind)`.
+
+### События и стыки после слияния
+
+- `kts:event` всегда `{id, phase: 'start'|'end'}`: `wifi` (+`until`), `vivi` (+`x, alt` пылесоса), `cakeMissed` (+`text`), `timesheetMissed`, `birthday`, `goodButton`, `may9` (салют виден). Звук салюта — по `may9`.
+- `kts:npc {id: 'toxic', phase, text}`; `predict` несёт `fulfilled`, `blocked` — `x, alt` бота. Штамп «ЗАБЛОКИРОВАН» ставит П8; П2 ставит свой, только если KTS-эффектов нет.
+- Одна KTS-NPC на экране: Виви не прыгает, пока `G.kts.npc.active()` занят ботом, бот не входит между `vivi start` и `end`.
+- Цепочка `hit` идёт в порядке загрузки: audio (запоминает удар) → modes (ЕБЛАН-РЕЖИМ, «Отложить» с `def.stompWord`, спотыкание) → pickups (щит «Больничного» только при `!h.cancel`) → balance (комбо). VPN не участвует в цепочке: связь под VPN становится `o.deco` и `o.ghost` и проходит сквозь кролика; звук глушения играет на пересечении призрака с кроликом.
+- Торт ставится режиссёром в каждом забеге, который дожил до 17:00: окно 09:30–17:00, сорванная заявка переподаётся до конца окна. Конфетти на торт — только П8; без KTS-эффектов П1 зовёт обычное `confetti`.
+- Счётчики: `vivi` — сам счёт (старт 2), `frogs` — раз в реальный день, `denis` — каждый съеденный торт (П4 досчитывает, если владелец не посчитал в том же кадре).
+- Тосты пакетов идут видом `kts`; находки (`kts:secret/duck/ach/skin`) тостит П5 видами `secret`, `duck`, `achievement`, `skin`.
+- Котзилла: если `G.scene.anchor('kotzilla')` есть, П6 кладёт поверх постера П3 только прозрачную кнопку и переключает вариации через `G.ktsWorld.kotzilla(n)`; свой стикер рисует, только когда якоря нет.
+- При `?kts=off` `G.kts` не шлёт `kts:day` и не трогает счётчики.
+
+### Проверка KTS
+
+- `node test/smoke.js` гоняет KTS-сценарии с проверками: `kts-off` и `kts-off-marathon` (ни одного KTS-типа, события `kts:*`, тоста `kts/secret/duck`, скина и слоя хотспотов), `kts-wednesday` (жаба и постер среды, торт в каждом забеге, пылесос и голосовое), `kts-birthday` (шарики и растяжка, `birthday start`), `kts-newyear`, `kts-halloween`, `kts-may9`, `kts-july` (бассейн, телефон), `kts-secrets` (7 кликов по Котзилле, слова с клавиатуры без переключения звука, все пикапы KTS через `G.collect`, все секретки, уточки, ачивки и скины, дайджест на смерти от пылесоса). Контракт событий: `kts:event`, `kts:npc`, `kts:unlock` (только зарегистрированные id), `kts:count`. Превью рисуются для всех скинов из `G.skins`.
+- `--only=<имя>` — один сценарий; `--bundle=<файл>` — грузит собранный `.html` вместо `index.html` и гоняет короткий набор (KTS-проверки включаются по `G.kts.enabled`).
+- Сборка оставляет `<meta charset="utf-8">` первой строкой: без неё файл, открытый с диска, показывает кириллицу кракозябрами.

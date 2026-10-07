@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Безголовый смоук-тест: грузит скрипты из index.html в фейковый DOM/canvas/WebAudio и гоняет игру.
- * Запуск: node game/test/smoke.js [--quick] [--verbose]
+ * Запуск: node game/test/smoke.js [--quick] [--verbose] [--only=<часть имени сценария>] [--bundle=<собранный .html>]
  * Код выхода 1, если были исключения, ошибки в G.errors или числа ушли в NaN.
  */
 'use strict';
@@ -13,9 +13,13 @@ const ROOT = path.resolve(__dirname, '..');
 const ARGS = new Set(process.argv.slice(2));
 const QUICK = ARGS.has('--quick');
 const VERBOSE = ARGS.has('--verbose');
+const ONLY = (process.argv.find((a) => a.startsWith('--only=')) || '').slice(7);
+const BUNDLE = (process.argv.find((a) => a.startsWith('--bundle=')) || '').slice(9);
 
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const SCRIPTS = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
+const html = fs.readFileSync(BUNDLE ? path.resolve(BUNDLE) : path.join(ROOT, 'index.html'), 'utf8');
+const SCRIPTS = BUNDLE
+  ? [...html.matchAll(/<script>\n([\s\S]*?)\n<\/script>/g)].map((m, i) => ({ name: `bundle#${i}`, code: m[1] }))
+  : [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => ({ name: m[1], file: path.join(ROOT, m[1]) }));
 const HTML_IDS = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]));
 
 const CTX_PROPS = new Set([
@@ -149,7 +153,7 @@ function makePlanner(G, fps) {
 }
 
 function runScenario(opts) {
-  const { name, seed = 1, width = 900, height = 450, seconds = 120, fps = 30, invincible = false, autopilot = true, chaos = false, bot = 'simple', search = '' } = opts;
+  const { name, seed = 1, width = 900, height = 450, seconds = 120, fps = 30, invincible = false, autopilot = true, chaos = false, bot = 'simple', search = '', check = null } = opts;
   const problems = [];
   const warnings = new Map();
   const warn = (k) => warnings.set(k, (warnings.get(k) || 0) + 1);
@@ -538,15 +542,15 @@ function runScenario(opts) {
   // ---------- загрузка ----------
   const loadT0 = process.hrtime.bigint();
   for (const src of SCRIPTS) {
-    const file = path.join(ROOT, src);
-    if (!fs.existsSync(file)) { problems.push(`missing script ${src}`); continue; }
-    const code = fs.readFileSync(file, 'utf8');
+    if (src.file && !fs.existsSync(src.file)) { problems.push(`missing script ${src.name}`); continue; }
+    const code = src.file ? fs.readFileSync(src.file, 'utf8') : src.code;
     try {
-      vm.runInContext(code, sandbox, { filename: src });
+      vm.runInContext(code, sandbox, { filename: src.name });
     } catch (e) {
-      problems.push(`load ${src}: ${e && e.stack ? e.stack.split('\n').slice(0, 5).join(' | ') : e}`);
+      problems.push(`load ${src.name}: ${e && e.stack ? e.stack.split('\n').slice(0, 5).join(' | ') : e}`);
     }
   }
+  if (BUNDLE && !SCRIPTS.length) problems.push('bundle has no inline scripts');
   const G = sandbox.G;
   if (!G) return { name, problems: problems.concat('window.G is missing after load'), warnings, summary: {} };
 
@@ -557,7 +561,9 @@ function runScenario(opts) {
   for (const evt of ['start', 'die', 'gameover', 'jump', 'land', 'pickup', 'bonus', 'milestone', 'pass', 'smash', 'pause', 'resume', 'powerup', 'powerupEnd', 'achievement', 'hit']) {
     G.on(evt, () => count(events, evt));
   }
+  const placed = {};
   G.on('spawn', (o) => count(spawned, o.type));
+  G.on('spawnPickup', (p) => count(placed, p.type));
   G.on('pickup', (p) => count(picked, p.type));
 
   // ---------- контракт между модулями ----------
@@ -575,7 +581,7 @@ function runScenario(opts) {
   for (const k of ['burst', 'popup', 'shake', 'dust']) contract(G.fx && typeof G.fx[k] === 'function', 'G.fx.' + k);
   for (const k of ['toggle', 'setMuted', 'setMusic', 'unlock', 'context']) contract(G.audio && typeof G.audio[k] === 'function', 'G.audio.' + k);
   for (const k of ['toast', 'setOverlay', 'verdict']) contract(G.ui && typeof G.ui[k] === 'function', 'G.ui.' + k);
-  const TOAST_KINDS = new Set(['milestone', 'achievement', 'skin', 'powerup', 'record', 'info']);
+  const TOAST_KINDS = new Set(['milestone', 'achievement', 'skin', 'powerup', 'record', 'info', 'kts', 'secret', 'duck']);
   if (G.ui && G.ui.toast) {
     const toast = G.ui.toast;
     G.ui.toast = (label, text, o) => {
@@ -641,7 +647,7 @@ function runScenario(opts) {
   const clickable = ['startBtn', 'againBtn', 'mute'].map((id) => byId.get(id)).filter(Boolean);
 
   if (typeof G.renderBunnyThumb === 'function') {
-    for (const id of SKIN_IDS) {
+    for (const id of new Set(SKIN_IDS.concat((G.skins || []).map((sk) => sk.id)))) {
       for (const px of [144, 40]) {
         const cv = doc.createElement('canvas');
         cv.width = px;
@@ -664,6 +670,13 @@ function runScenario(opts) {
     const sp = G.mod('speed');
     if (S.mode === 'run' && !(sp >= 0.5 && sp <= 2)) problems.push(`speed mod out of range: ${sp}`);
   }
+
+  let probe = null;
+  const typeKey = (code, key) => {
+    winTarget.dispatchEvent(makeEvent('keydown', { code, key, target: doc.body }));
+    winTarget.dispatchEvent(makeEvent('keyup', { code, key, target: doc.body }));
+  };
+  if (check) guard('check', () => { probe = check(G, { press, tap, step, typeKey, byId, doc, problems, fps }) || null; });
 
   step();
   tap();
@@ -722,6 +735,7 @@ function runScenario(opts) {
 
     step();
     invariants();
+    if (probe && probe.frame) guard('check frame', () => probe.frame(frames));
 
     const B = G.bunny;
     maxT = Math.max(maxT, S.t);
@@ -737,6 +751,7 @@ function runScenario(opts) {
   }
 
   const elapsedMs = Number(process.hrtime.bigint() - t0) / 1e6;
+  if (probe && probe.end) guard('check end', () => { for (const p of probe.end() || []) problems.push('kts: ' + p); });
   if (nonFinite) problems.push('non-finite state: ' + nonFinite);
   for (const e of G.errors || []) problems.push(`G.errors [${e.tag}] ${e.message} :: ${String(e.stack).split('\n').slice(1, 4).join(' | ')}`);
   for (const e of consoleErrors) if (!/^\[G\]/.test(e)) problems.push('console.error: ' + e);
@@ -758,6 +773,7 @@ function runScenario(opts) {
       maxScore,
       events,
       spawned,
+      placed,
       picked,
       maxObstacles,
       maxPickups,
@@ -767,12 +783,209 @@ function runScenario(opts) {
   };
 }
 
-const scenarios = QUICK
+// ---------- KTS: что должно быть в забеге ----------
+const KTS_OBSTACLES = ['vacuum', 'voice'];
+const KTS_PICKUPS = ['cake', 'frog', 'timesheet', 'echpochmak', 'chakchak', 'khryuchevo', 'vpn', 'duck', 'plovClue', 'kazan', 'goodButton'];
+const KTS_EVENTS = ['kts:event', 'kts:npc', 'kts:unlock', 'kts:secret', 'kts:duck', 'kts:ach', 'kts:skin', 'kts:count', 'kts:day', 'kts:egg', 'kts:poke'];
+const KTS_SECRETS = ['wednesday', 'gift', 'drullegi', 'trusy', 'stopword', 'meme1156', 'snoozeMeme', 'goodButton', 'filter', 'kotzilla', 'inevitable', 'plov', 'mordor', 'ducks', 'vivi'];
+const NPC_PHASES = new Set(['enter', 'predict', 'kind', 'dive', 'blocked', 'leave']);
+const UNLOCK_SECTION = { secret: 'secrets', duck: 'ducks', ach: 'achievements', skin: 'skins' };
+const KTS_TOASTS = new Set(['kts', 'secret', 'duck']);
+
+function keyCode(ch) {
+  const RU = 'йцукенгшщзхъфывапролджэячсмитьбю';
+  const EN = 'qwertyuiop[]asdfghjkl;\'zxcvbnm,.';
+  const lower = ch.toLowerCase();
+  const i = RU.indexOf(lower);
+  const en = i >= 0 ? EN[i] : lower;
+  if (en === ' ') return 'Space';
+  if (/[a-z]/.test(en)) return 'Key' + en.toUpperCase();
+  return { '[': 'BracketLeft', ']': 'BracketRight', ';': 'Semicolon', "'": 'Quote', ',': 'Comma', '.': 'Period' }[en] || 'Unidentified';
+}
+
+function ktsCheck(exp = {}) {
+  return (G, api) => {
+    const bad = [];
+    const need = (cond, msg) => { if (!cond) bad.push(msg); };
+    const K = G.kts;
+    const seen = Object.create(null);
+    const kinds = Object.create(null);
+    for (const evt of KTS_EVENTS) {
+      G.on(evt, (e) => {
+        seen[evt] = (seen[evt] || 0) + 1;
+        if (evt === 'kts:event') need(e && typeof e.id === 'string' && (e.phase === 'start' || e.phase === 'end'), `kts:event {id, phase}: ${JSON.stringify(e && { id: e.id, phase: e.phase })}`);
+        if (evt === 'kts:npc') need(e && typeof e.id === 'string' && NPC_PHASES.has(e.phase), `kts:npc {id, phase}: ${e && e.id}/${e && e.phase}`);
+        if (evt === 'kts:unlock') need(e && UNLOCK_SECTION[e.kind] && typeof e.id === 'string' && K.raw(UNLOCK_SECTION[e.kind], e.id), `kts:unlock of unregistered ${e && e.kind}:${e && e.id}`);
+        if (evt === 'kts:count') need(e && typeof e.key === 'string' && Number.isFinite(e.value), `kts:count {key, value}: ${e && e.key}`);
+        if (evt === 'kts:event' && e) kinds[e.id + ':' + e.phase] = (kinds[e.id + ':' + e.phase] || 0) + 1;
+      });
+    }
+    const placed = Object.create(null);
+    const spawned = Object.create(null);
+    G.on('spawnPickup', (p) => { placed[p.type] = (placed[p.type] || 0) + 1; });
+    G.on('spawn', (o) => { spawned[o.type] = (spawned[o.type] || 0) + 1; });
+    const toastKinds = Object.create(null);
+    G.on('toast', (t) => { if (t) toastKinds[t.kind] = (toastKinds[t.kind] || 0) + 1; });
+
+    if (exp.off) {
+      need(!K || K.enabled === false, 'G.kts.enabled must be false with ?kts=off');
+      for (const id of KTS_OBSTACLES) need(!G.obstacleTypes[id], `obstacle ${id} registered with ?kts=off`);
+      for (const id of KTS_PICKUPS) need(!G.pickupTypes[id], `pickup ${id} registered with ?kts=off`);
+      need(!G.ktsWorld && !G.ktsItems && !(K && (K.npc || K.eggs || K.screens)), 'KTS modules must stay silent with ?kts=off');
+      need(!(G.fx && (G.fx.react || G.fx.ktsConfetti)), 'G.fx.react/ktsConfetti with ?kts=off');
+      need(G.fx && typeof G.fx.stamp === 'function', 'G.fx.stamp must exist without KTS');
+      need(!(G.skins || []).some((sk) => sk.id === 'trusy' || sk.id === 'duck'), 'KTS skins with ?kts=off');
+      const hoodie = (G.skins || []).find((sk) => sk.id === 'hoodie');
+      need(!hoodie || !/KTS/.test(hoodie.name || ''), 'hoodie renamed with ?kts=off');
+      return {
+        end() {
+          for (const evt in seen) bad.push(`${evt} ×${seen[evt]} with ?kts=off`);
+          for (const id of KTS_OBSTACLES) if (spawned[id]) bad.push(`spawned ${id} ×${spawned[id]} with ?kts=off`);
+          for (const id of KTS_PICKUPS) if (placed[id]) bad.push(`placed ${id} ×${placed[id]} with ?kts=off`);
+          for (const k in toastKinds) if (KTS_TOASTS.has(k)) bad.push(`toast kind ${k} with ?kts=off`);
+          const layer = (G.stage && G.stage.children || []).find((c) => c && c.className === 'kts-eggs');
+          if (layer) bad.push('kts-eggs layer with ?kts=off');
+          return bad;
+        },
+      };
+    }
+
+    need(K && K.enabled === true, 'G.kts.enabled');
+    for (const id of KTS_OBSTACLES) need(G.obstacleTypes[id], `obstacle ${id} not registered`);
+    for (const id of KTS_PICKUPS) need(G.pickupTypes[id], `pickup ${id} not registered`);
+    need(G.powerups && G.powerups.defs && G.powerups.defs.vpn, 'powerup vpn');
+    for (const k of ['stamp', 'react', 'ktsConfetti', 'salute']) need(G.fx && typeof G.fx[k] === 'function', 'G.fx.' + k);
+    need(G.scene && typeof G.scene.anchor === 'function', 'G.scene.anchor');
+    need(K.npc && 'lastPrediction' in K.npc && typeof K.npc.active === 'function', 'G.kts.npc');
+    need(K.screens && typeof K.screens.onDigest === 'function', 'G.kts.screens.onDigest');
+    need(G.ktsWorld && typeof G.ktsWorld.built === 'function', 'G.ktsWorld');
+    need(K.eggs && typeof K.eggs.plovLoc === 'function', 'G.kts.eggs');
+    for (const k of ['ban', 'banned', 'queuePickup', 'inject', 'busy', 'reserve']) need(G.director && typeof G.director[k] === 'function', 'G.director.' + k);
+    for (const k of ['pushChase', 'addMeter', 'stompable']) need(G.modes && typeof G.modes[k] === 'function', 'G.modes.' + k);
+    for (const k of ['addAchievement', 'addSkinRule', 'addCollection']) need(G.meta && typeof G.meta[k] === 'function', 'G.meta.' + k);
+    for (const k of ['textHook', 'slot', 'rich']) need(G.ui && typeof G.ui[k] === 'function', 'G.ui.' + k);
+    need(G.words && typeof G.words.guard === 'function', 'G.words.guard');
+    for (const sk of K.all('skins')) need((G.skins || []).some((x) => x.id === sk.id), `skin ${sk.id} missing in G.skins`);
+    for (const id of KTS_SECRETS) need(K.get('secrets', id), `secret ${id} not registered`);
+    const nSecrets = K.total('secret');
+    need(nSecrets >= 15 && nSecrets <= 25, `secrets total ${nSecrets} not in 15..25`);
+    const cakeDef = K.get('items', 'cake');
+    const cakeEnd = cakeDef && G.ktsItems ? G.ktsItems.tOf(cakeDef.window[1]) : Infinity;
+
+    let runCake = 0, runIdx = 0;
+    const digests = [];
+    K.screens.onDigest((d) => digests.push(d && d.n));
+    G.on('start', () => { runIdx++; runCake = 0; });
+    G.on('spawnPickup', (p) => { if (p.type === 'cake') runCake++; });
+    const cakeGap = () => (exp.cake && G.state.t > cakeEnd + 1 && !runCake ? `run ${runIdx}: no cake by t=${G.state.t.toFixed(1)}` : null);
+    G.on('die', () => { const m = cakeGap(); if (m) bad.push(m); });
+
+    const script = exp.secrets ? secretsScript(G, api, need) : null;
+    return {
+      frame(n) { if (script) script.frame(n); },
+      end() {
+        const m = cakeGap();
+        if (m) bad.push(m);
+        const W = G.ktsWorld;
+        if (exp.frog === true) {
+          need(placed.frog > 0, 'Wednesday: frog never placed');
+          need(W.built('frogL') || W.built('frogO'), 'Wednesday: frog poster never drawn');
+        } else if (exp.frog === false) {
+          need(!placed.frog, `not Wednesday: frog placed ×${placed.frog}`);
+          need(!W.built('frogL') && !W.built('frogO'), 'not Wednesday: frog poster drawn');
+        }
+        if (exp.november === true) {
+          need(W.built('ball') && W.built('bunt'), 'November: balloons/bunting never drawn');
+          need(kinds['birthday:start'] > 0, 'November: kts:event birthday never started');
+        } else if (exp.november === false) {
+          need(!W.built('ball') && !W.built('bunt'), 'not November: birthday decor drawn');
+        }
+        if (exp.halloween) need(W.built('pump'), 'Halloween: pumpkins never drawn');
+        if (exp.newYear) need(W.built('nyG') || W.built('tree'), 'New Year: garland/tree never drawn');
+        if (exp.may9) need(W.day.may9, '9 May: day.may9');
+        if (exp.summer) need(W.day.pool && W.built('pool'), 'July: pool never drawn');
+        if (exp.vacuum) need(spawned.vacuum > 0 && spawned.voice > 0, `marathon: vacuum ×${spawned.vacuum || 0}, voice ×${spawned.voice || 0}`);
+        if (exp.digest) need(digests.length > 0, 'no digest on game over');
+        if (script) script.end();
+        return bad;
+      },
+    };
+  };
+}
+
+// Секретки и уточки: каждую находку и каждый подбор KTS проводим через живой код и смотрим, что никто не падает.
+function secretsScript(G, api, need) {
+  const K = G.kts, S = G.state;
+  const stageKids = () => (G.stage && G.stage.children) || [];
+  const eggsLayer = () => stageKids().find((c) => c && c.className === 'kts-eggs');
+  const typeKeys = (text) => {
+    for (const ch of text) api.typeKey(keyCode(ch), ch);
+  };
+  for (let i = 0; i < 3; i++) api.step();
+  const layer = eggsLayer();
+  need(layer, 'kts-eggs layer missing on start screen');
+  const kotzilla = layer && layer.children.find((b) => b.getAttribute && b.getAttribute('aria-label') === 'Котзилла');
+  need(kotzilla, 'Kotzilla hotspot missing');
+  if (kotzilla) for (let i = 0; i < 7; i++) kotzilla.click();
+  need(K.has('secret', 'kotzilla'), 'Kotzilla: 7 clicks did not unlock');
+  const music0 = G.audio.music, muted0 = G.audio.muted;
+  typeKeys('ХОЧУТРУСЫ');
+  need(K.has('secret', 'trusy') && K.has('skin', 'trusy'), 'typed ХОЧУТРУСЫ: no trusy');
+  need(G.audio.music === music0 && G.audio.muted === muted0, 'typing a secret word toggled sound/music');
+  typeKeys('друллеги');
+  need(K.has('secret', 'drullegi'), 'typed друллеги: no secret');
+  for (const b of (layer ? layer.children : [])) if (b.style && b.style.display !== 'none') b.click();
+
+  const ducks = K.all('ducks').map((d) => d.id);
+  let di = 0, did = Object.create(null), died = false;
+  const at = (t, key, fn) => { if (S.mode === 'run' && S.t >= t && !did[key]) { did[key] = true; fn(); } };
+  return {
+    frame() {
+      if (S.mode !== 'run') return;
+      at(4, 'words', () => { G.typeWord('плов', 'field'); G.typeWord('хочу трусы', 'field'); G.typeWord('стоп', 'field'); });
+      at(12, 'vpn', () => G.powerups.give('vpn'));
+      at(16, 'button', () => K.eggs.force && K.eggs.force('goodButton'));
+      at(26, 'clue', () => K.eggs.force && K.eggs.force('plovClue'));
+      at(30, 'kindBot', () => K.npc._toxic({ kind: true }));
+      at(40, 'wifi', () => G.emit('kts:event', { id: 'wifi', phase: 'start', until: S.t + 4 }));
+      at(44, 'wifiEnd', () => G.emit('kts:event', { id: 'wifi', phase: 'end' }));
+      at(46, 'kazan', () => K.eggs.force && K.eggs.force('kazan'));
+      at(56, 'bot', () => K.npc._toxic({ group: 'clocks' }));
+      if (S.t > 60 && K.eggs.forceDuck && di < ducks.length && Math.floor(S.t * 2) % 5 === 0 && !did['duck' + di]) {
+        did['duck' + di] = true;
+        K.eggs.forceDuck(ducks[di++]);
+      }
+      for (const p of G.pickups.slice()) {
+        if (!p.taken && KTS_PICKUPS.indexOf(p.type) >= 0 && p.x < G.W - 30 && p.x > G.bunny.x - 40) G.collect(p);
+      }
+      at(150, 'all', () => {
+        for (const d of K.all('secrets')) K.secret(d.id);
+        for (const d of K.all('ducks')) K.duck(d.id);
+        for (const d of K.all('achievements')) K.ach(d.id);
+        for (const d of K.all('skins')) K.skin(d.id);
+      });
+      at(156, 'die', () => { died = true; G.die({ type: 'vacuum', x: G.bunny.x + 10, alt: 0 }); });
+    },
+    end() {
+      for (const kind of ['secret', 'duck', 'skin']) need(K.found(kind).length >= K.total(kind), `${kind}: found ${K.found(kind).length}/${K.total(kind)}`);
+      need(K.counter('denis') > 0 || !K.get('items', 'cake'), 'cake never collected');
+      need(died, 'secrets script did not reach game over');
+    },
+  };
+}
+
+const ktsAuto = (G, api) => ktsCheck(G.kts && G.kts.enabled ? {} : { off: true })(G, api);
+const scenarios = BUNDLE
+  ? [
+      { name: 'bundle-chaos', seed: 31, seconds: 40, chaos: true, check: ktsAuto },
+      { name: 'bundle-marathon', seed: 32, seconds: 90, invincible: true, fps: 25, check: ktsAuto },
+    ]
+  : QUICK
   ? [
       { name: 'quick-play', seconds: 40, chaos: true },
       { name: 'quick-invincible', seconds: 60, invincible: true },
-      { name: 'quick-kts-off', seconds: 30, chaos: true, search: '?kts=off' },
-      { name: 'quick-kts-wednesday', seconds: 40, invincible: true, search: '?date=2026-10-07' },
+      { name: 'quick-kts-off', seconds: 30, chaos: true, search: '?kts=off', check: ktsCheck({ off: true }) },
+      { name: 'quick-kts-wednesday', seconds: 40, invincible: true, search: '?date=2026-10-07', check: ktsCheck({}) },
     ]
   : [
       { name: 'play-desktop', seed: 1, seconds: 240, chaos: false },
@@ -783,20 +996,25 @@ const scenarios = QUICK
       { name: 'planner-phone', seed: 12, width: 343, height: 300, seconds: 300, fps: 60, bot: 'planner' },
       { name: 'planner-wide', seed: 13, width: 1400, height: 420, seconds: 240, fps: 60, bot: 'planner' },
       { name: 'planner-30fps', seed: 14, width: 700, height: 500, seconds: 240, fps: 30, bot: 'planner' },
-      { name: 'kts-off', seed: 21, seconds: 120, chaos: true, search: '?kts=off' },
-      { name: 'kts-wednesday', seed: 22, seconds: 300, invincible: true, fps: 25, search: '?date=2026-10-07' },
-      { name: 'kts-birthday', seed: 23, seconds: 300, invincible: true, fps: 25, search: '?date=2026-11-09' },
-      { name: 'kts-newyear', seed: 24, seconds: 200, chaos: true, search: '?date=2026-12-31&time=23:30' },
-      { name: 'kts-halloween', seed: 25, seconds: 200, chaos: true, search: '?date=2026-10-31' },
+      { name: 'kts-off', seed: 21, seconds: 120, chaos: true, search: '?kts=off', check: ktsCheck({ off: true }) },
+      { name: 'kts-off-marathon', seed: 26, seconds: 200, invincible: true, fps: 25, search: '?kts=off', check: ktsCheck({ off: true }) },
+      { name: 'kts-wednesday', seed: 22, seconds: 300, invincible: true, fps: 25, search: '?date=2026-10-07', check: ktsCheck({ cake: true, frog: true, november: false, vacuum: true }) },
+      { name: 'kts-birthday', seed: 23, seconds: 300, invincible: true, fps: 25, search: '?date=2026-11-09', check: ktsCheck({ cake: true, frog: false, november: true, vacuum: true }) },
+      { name: 'kts-newyear', seed: 24, seconds: 200, chaos: true, search: '?date=2026-12-31&time=23:30', check: ktsCheck({ cake: true, frog: false, newYear: true, digest: true }) },
+      { name: 'kts-halloween', seed: 25, seconds: 200, chaos: true, search: '?date=2026-10-31', check: ktsCheck({ cake: true, frog: false, halloween: true, digest: true }) },
+      { name: 'kts-may9', seed: 27, seconds: 220, invincible: true, fps: 20, search: '?date=2026-05-09', check: ktsCheck({ cake: true, frog: false, may9: true }) },
+      { name: 'kts-july', seed: 28, width: 343, height: 300, seconds: 160, invincible: true, fps: 20, search: '?date=2026-07-15', check: ktsCheck({ cake: true, frog: true, summer: true }) },
+      { name: 'kts-secrets', seed: 29, seconds: 200, invincible: true, fps: 25, search: '?date=2026-11-09&kts-debug=1', check: ktsCheck({ secrets: true, digest: true }) },
     ];
 
 if (require.main !== module) {
-  module.exports = { runScenario };
+  module.exports = { runScenario, ktsCheck };
   return;
 }
 
 let failed = false;
 for (const sc of scenarios) {
+  if (ONLY && !sc.name.includes(ONLY)) continue;
   const r = runScenario(sc);
   const ok = r.problems.length === 0;
   if (!ok) failed = true;
