@@ -66,6 +66,9 @@
     mission: SVG('<rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>', 'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"'),
     boss: SVG('<rect x="2.5" y="6.5" width="12.5" height="11" rx="2.5"/><path d="M15 10.5 21 7.5v9l-6-3z"/>', 'fill="currentColor"'),
     grade: SVG('<path d="m12 2.8 2.75 5.6 6.15.9-4.45 4.33 1.05 6.12L12 16.86 6.5 19.75l1.05-6.12L3.1 9.3l6.15-.9z"/>', 'fill="currentColor"'),
+    kts: SVG('<path d="M12 20.4s-7.6-4.5-7.6-10.1A4.3 4.3 0 0 1 12 7.7a4.3 4.3 0 0 1 7.6 2.6c0 5.6-7.6 10.1-7.6 10.1z"/>', 'fill="currentColor"'),
+    secret: SVG('<circle cx="12" cy="9.3" r="3.9"/><path d="M10.2 11.8h3.6l1.3 8H8.9z"/>', 'fill="currentColor"'),
+    duck: SVG('<circle cx="9.2" cy="7.6" r="3.7"/><path d="M12.4 7.3 16.2 8l-3.6 1.6z"/><path d="M3.2 13.3c.1-1.2 1.2-1.8 2.4-1.4 2.2.7 3.8.5 5.4-.6 1.8-1.2 4.4-1.6 6.8-.8 2.6.9 3.9 3 3.4 5.4-.6 2.9-3.7 4.3-8.7 4.3-5.6 0-9.5-2.6-9.3-6.9z"/>', 'fill="currentColor"'),
   };
   const DAY_ICON = {
     coffee: '<path d="M5 9h11v4.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 10h1.5a2.5 2.5 0 0 1 0 5H16M8.5 3.5v2.5M12 3.5v2.5"/>',
@@ -101,6 +104,69 @@
     return many;
   }
 
+  // ---------- подменяемые тексты ----------
+  const textHooks = [];
+  function say(key, def, ctx) {
+    for (const fn of textHooks) {
+      try {
+        const v = fn(key, ctx || null, def);
+        if (typeof v === 'string') return v;
+      } catch (e) {
+        G.report('ui: текст ' + key, e);
+      }
+    }
+    return def;
+  }
+  const STRIKE = /~~(.+?)~~/g;
+  const plain = (s) => String(s == null ? '' : s).replace(STRIKE, '').replace(/\s{2,}/g, ' ').trim();
+  function rich(node, text) {
+    if (!node) return;
+    const s = String(text == null ? '' : text);
+    STRIKE.lastIndex = 0;
+    if (!STRIKE.test(s)) {
+      node.textContent = s;
+      return;
+    }
+    node.textContent = '';
+    let at = 0;
+    s.replace(STRIKE, (m, inner, idx) => {
+      if (idx > at) node.append(doc.createTextNode(s.slice(at, idx)));
+      const del = doc.createElement('s');
+      del.textContent = inner;
+      node.append(del);
+      at = idx + m.length;
+      return m;
+    });
+    if (at < s.length) node.append(doc.createTextNode(s.slice(at)));
+  }
+
+  // ---------- слоты для модулей ----------
+  const slots = Object.create(null);
+  function slotHost(view, place) {
+    const key = view + ':' + place;
+    if (slots[key]) return slots[key];
+    let parent = null, before = null;
+    if (place === 'float') parent = view === 'hud' ? hudClockBox : views[view];
+    else if (view === 'start') parent = $('startTop') || views.start;
+    else if (view === 'pause') parent = views.pause;
+    else if (view === 'over') {
+      parent = resultCard;
+      before = $('metaOver');
+    } else if (view === 'hud') parent = hudClockBox;
+    if (!parent) return null;
+    const box = doc.createElement('div');
+    box.className = place === 'float' ? 'ui-float' : 'ui-slot ui-slot-' + view;
+    if (before && before.parentNode === parent && typeof parent.insertBefore === 'function') parent.insertBefore(box, before);
+    else parent.append(box);
+    slots[key] = box;
+    return box;
+  }
+  function slot(view, node, place) {
+    const host = slotHost(String(view), place === 'float' ? 'float' : 'flow');
+    if (host && node) host.append(node);
+    return host;
+  }
+
   // ---------- вердикт ----------
   // Пороги под экономику очков: морковки и комбо дают примерно втрое больше минут, чем идёт на часах.
   const VERDICTS = [
@@ -114,10 +180,11 @@
     [3200, 'Мастер спорта по ебланству.'],
     [Infinity, 'Легенда. День прошёл, IDE так и не открыта.'],
   ];
-  function verdict(m) {
+  function baseVerdict(m) {
     for (const [limit, text] of VERDICTS) if (m < limit) return text;
     return VERDICTS[VERDICTS.length - 1][1];
   }
+  const verdict = (m) => say('verdict', baseVerdict(m), { score: m });
 
   // ---------- оверлей ----------
   function setOverlay(name) {
@@ -192,7 +259,7 @@
       hudBestBox.classList.toggle('beating', beating);
       if (beating && !recordToasted) {
         recordToasted = true;
-        toast('Рекорд побит', 'Дальше — только чистое ебланство', { kind: 'record' });
+        toast(say('toast.record.label', 'Рекорд побит'), say('toast.record.text', 'Дальше — только чистое ебланство'), { kind: 'record' });
       }
     }
   }
@@ -295,7 +362,7 @@
     work.seen = false;
     work.wait = 0;
     if (hudScoreBox) hudScoreBox.classList.toggle('working', on);
-    if (hudScoreLabel) hudScoreLabel.textContent = on ? WORK_LABEL : SCORE_LABEL;
+    if (hudScoreLabel) hudScoreLabel.textContent = on ? say('hud.working', WORK_LABEL) : SCORE_LABEL;
   }
   function tickWorking(realDt) {
     if (!work.on) return;
@@ -334,7 +401,7 @@
   }
 
   // ---------- тосты ----------
-  const TOAST_SEC = { milestone: 3.4, achievement: 3.6, skin: 3.6, powerup: 2.2, record: 3, info: 2.8, mission: 2.2, boss: 3.2, grade: 3.4 };
+  const TOAST_SEC = { milestone: 3.4, achievement: 3.6, skin: 3.6, powerup: 2.2, record: 3, info: 2.8, mission: 2.2, boss: 3.2, grade: 3.4, kts: 3.4, secret: 4, duck: 3.4 };
   let bossUp = false;
   const maxLive = () => (bossUp || G.W * G.scale < 560 ? 1 : 2);
   const MAX_QUEUE = 6;
@@ -396,6 +463,7 @@
   }
   function pushToast(t) {
     if (!t.label && !t.text) return;
+    G.emit('toast', { kind: t.kind, label: t.label, text: t.text });
     for (const x of live) {
       if (sameToast(x, t)) {
         x.until = G.state.realT + t.dur;
@@ -449,8 +517,9 @@
   let copyResetTimer = 0;
   const COPY_LABEL = { idle: 'Скопировать результат', done: 'Скопировано', manual: 'Выделил — скопируй вручную' };
   function setCopyState(state) {
+    const key = COPY_LABEL[state] ? state : 'idle';
     copyBtn.setAttribute('data-state', state);
-    copyLabel.textContent = COPY_LABEL[state] || COPY_LABEL.idle;
+    copyLabel.textContent = say('copy.' + key, COPY_LABEL[key]);
     clearTimeout(copyResetTimer);
     if (state === 'done') copyResetTimer = setTimeout(() => setCopyState('idle'), 2200);
   }
@@ -707,8 +776,8 @@
       const gap = info.best - info.score;
       note.textContent = gap > 0 ? `−${G.fmtMin(gap)}` : info.best > 0 ? 'ровно рекорд' : '';
     }
-    $('verdict').textContent = verdict(info.score);
-    shareText = buildShare(info);
+    rich($('verdict'), verdict(info.score));
+    shareText = plain(say('share', buildShare(info), { info }));
     shareEl.hidden = true;
     shareEl.textContent = '';
     setCopyState('idle');
@@ -739,11 +808,25 @@
   }
 
   // ---------- API ----------
-  G.ui = { toast, setOverlay, verdict };
+  G.ui = {
+    toast,
+    setOverlay,
+    verdict: (m) => plain(verdict(m)),
+    textHook: (fn) => {
+      if (typeof fn === 'function') textHooks.push(fn);
+    },
+    rich,
+    slot,
+  };
 
   // ---------- события ----------
   const MEME_MS = 176;
   const BOSS_MS = 420;
+  const BOSS_TEXT = {
+    start: ['All-hands · камеру включи', 'Лови 3 кнопки «Покинуть»'],
+    win: ['Всем спасибо, все свободны', '+1 час ебланства'],
+    fail: ['Перенесли на завтра', 'All-hands кончился без тебя'],
+  };
   let bossPhase = '';
   let pendingGrade = null;
   G.on('boot', () => {
@@ -780,8 +863,11 @@
     setOverlay(null);
     renderPause();
   });
+  const pauseSub = $('pauseSub');
+  const PAUSE_SUB = pauseSub ? pauseSub.textContent : '';
   G.on('pause', () => {
     setPlaying(false);
+    if (pauseSub) rich(pauseSub, say('pause.sub', PAUSE_SUB));
     setOverlay('pause');
     renderPause();
   });
@@ -802,7 +888,7 @@
   G.on('gameover', (info) => {
     fillResult(info);
     clearToasts();
-    if (pendingGrade && maxLive() > 1) toast('Новый грейд', pendingGrade.name, { kind: 'grade' });
+    if (pendingGrade && maxLive() > 1) toast(say('toast.grade.label', 'Новый грейд', { grade: pendingGrade }), pendingGrade.name, { kind: 'grade' });
     pendingGrade = null;
     views.over.classList.remove('ready');
     setOverlay('over');
@@ -844,7 +930,8 @@
   G.on('mission', (m) => {
     if (!m || G.state.mode !== 'run') return;
     const stars = '★'.repeat(G.clamp(Math.round(Number(m.stars)) || 1, 1, 3));
-    toast(`${m.key || 'Тикет'} · ${stars}`, m.name || '', { kind: 'mission', stamp: 'Закрыт' });
+    const ctx = { key: m.key || 'Тикет', stars, mission: m };
+    toast(say('toast.mission.label', `${ctx.key} · ${stars}`, ctx), m.name || '', { kind: 'mission', stamp: say('toast.mission.stamp', 'Закрыт', ctx) });
   });
   G.on('grade', (g) => {
     if (g && g.name) pendingGrade = g;
@@ -854,13 +941,14 @@
     bossPhase = b.phase || '';
     bossUp = bossPhase === 'warn' || bossPhase === 'start' || bossPhase === 'hit';
     if (G.state.mode !== 'run') return;
-    if (b.phase === 'start') toast('All-hands · камеру включи', 'Лови 3 кнопки «Покинуть»', { kind: 'boss', duration: 2.6 });
-    else if (b.phase === 'win') toast('Всем спасибо, все свободны', '+1 час ебланства', { kind: 'boss' });
-    else if (b.phase === 'fail') toast('Перенесли на завтра', 'All-hands кончился без тебя', { kind: 'boss' });
+    const bt = BOSS_TEXT[b.phase];
+    if (!bt) return;
+    const k = 'toast.boss.' + b.phase;
+    toast(say(k + '.label', bt[0], b), say(k + '.text', bt[1], b), { kind: 'boss', duration: b.phase === 'start' ? 2.6 : undefined });
   });
   G.on('recordFlag', (f) => {
     if (!f || f.phase !== 'pass' || G.state.mode !== 'run') return;
-    toast('Дальше ты ещё не ебланил', f.clock ? `рекорд по часам — ${f.clock}` : '', { kind: 'record' });
+    toast(say('toast.recordFlag.label', 'Дальше ты ещё не ебланил', f), f.clock ? say('toast.recordFlag.text', `рекорд по часам — ${f.clock}`, f) : '', { kind: 'record' });
   });
   G.on('skinUnlock', renderSkinPick);
   G.on('combo', setCombo);
@@ -1004,7 +1092,8 @@
   const tapMain = $('tapMain');
   const TAP_TEXT = { start: 'Тап — начать', run: 'Тап — прыжок', pause: 'Тап — продолжить', over: 'Тап — ещё раз' };
   function renderTap() {
-    if (tapMain) tapMain.textContent = TAP_TEXT[G.state.mode] || TAP_TEXT.run;
+    const mode = TAP_TEXT[G.state.mode] ? G.state.mode : 'run';
+    if (tapMain) tapMain.textContent = say('tap.' + mode, TAP_TEXT[mode]);
   }
   if (tapPad) {
     tapPad.addEventListener('pointerdown', (e) => {

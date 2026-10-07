@@ -57,7 +57,7 @@
     <canvas id="game" role="img" aria-label="Кролик бежит по дивану и перепрыгивает будильники, стопки тасок и созвоны"></canvas>
     <div class="overlay" id="overlay">
       <div class="view view-start" id="startView">
-        <div class="view-top">
+        <div class="view-top" id="startTop">
           <div class="meme meme-top">Давай ебланить</div>
           <div class="chips">
             <span class="chip chip-help">
@@ -80,7 +80,7 @@
       <div class="view view-over" id="overView" hidden>
         <div class="meme meme-top">Доебланился</div>
         <div class="result" id="resultCard" data-noinput>
-          <div class="result-head">
+          <div class="result-head" id="resultHead">
             <p class="cause" id="cause"></p>
             <span class="stamp" id="recordStamp" hidden>Новый<br>рекорд</span>
           </div>
@@ -95,7 +95,7 @@
           <p class="verdict" id="verdict"></p>
           <div id="metaOver" class="meta-over" data-noinput></div>
           <p class="share-text" id="shareText" hidden></p>
-          <div class="result-actions">
+          <div class="result-actions" id="resultActions">
             <button type="button" class="chip-btn" id="copyBtn" data-state="idle">
               <svg class="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg>
               <svg class="i-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
@@ -108,7 +108,7 @@
 
       <div class="view view-pause center" id="pauseView" hidden>
         <div class="meme meme-pause">Пауза</div>
-        <p class="sub">Ебланство никуда не денется</p>
+        <p class="sub" id="pauseSub">Ебланство никуда не денется</p>
         <button type="button" class="chip-btn chip-btn-solid" id="resumeBtn">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
           Продолжить ебланить
