@@ -38,9 +38,14 @@
   const MEME_T = 0.8;
   const MEME_HOLD = 0.55;
 
-  const DOT = 0, DUST = 1, SPARK = 2, CONFETTI = 3, FEATHER = 4, FLUFF = 5, STAR = 6, PAPER = 7, SHARD = 8, RING = 9, LEAF = 10, STEAM = 11;
-  const KINDS = 12;
+  const DOT = 0, DUST = 1, SPARK = 2, CONFETTI = 3, FEATHER = 4, FLUFF = 5, STAR = 6, PAPER = 7, SHARD = 8, RING = 9, LEAF = 10, STEAM = 11, SPRITE = 12, FLAME = 13;
+  const KINDS = 14;
   const L_BACK = 0, L_FRONT = 1, L_SCREEN = 2, L_AMB = 3, L_AMBF = 4;
+  const layerOf = (name) => (name === 'back' ? L_BACK : name === 'screen' ? L_SCREEN : L_FRONT);
+  const FIRE_IN = '#ffe14d';
+  const FIRE_OUT = '#ff6a1f';
+  const STAMP_INK = '#d8342c';
+  const MAX_STAMPS = 3;
 
   const STAR_PTS = new Float32Array(20);
   for (let i = 0; i < 10; i++) {
@@ -69,6 +74,7 @@
     this.rot = 0; this.vr = 0; this.wob = 0; this.wf = 0; this.sway = 0;
     this.r0 = 0; this.w = 0; this.sq = 1; this.v = 0;
     this.color = WHITE; this.color2 = WHITE;
+    this.img = null; this.pop = 0;
   }
   const pool = new Array(MAX_PARTICLES);
   for (let i = 0; i < MAX_PARTICLES; i++) pool[i] = new Particle();
@@ -85,6 +91,7 @@
     p.rot = 0; p.vr = 0; p.wob = 0; p.wf = 0; p.sway = 0;
     p.r0 = 0; p.w = 0; p.sq = 1; p.v = 0;
     p.color = color; p.color2 = color;
+    p.img = null; p.pop = 0;
     return p;
   }
 
@@ -358,6 +365,40 @@
           ctx.stroke();
           break;
         }
+        case FLAME: {
+          const r = p.size * (0.3 + 0.7 * l);
+          ctx.globalAlpha = Math.min(cap, Math.min(1, l * 2.2) * p.a) * aMul;
+          setFill(ctx, p.color2);
+          disc(ctx, x, y, r);
+          if (l > 0.35) {
+            setFill(ctx, p.color);
+            disc(ctx, x, y + r * 0.15, r * 0.55);
+          }
+          break;
+        }
+        case SPRITE: {
+          const img = p.img;
+          if (!img || !img.width) break;
+          const age = p.max - p.life;
+          let s = 1;
+          if (p.pop > 0 && age < p.pop) {
+            const k = age / p.pop - 1;
+            s = Math.max(0.05, 1 + 2.7 * k * k * k + 1.7 * k * k);
+          }
+          ctx.globalAlpha = Math.min(cap, (l < 0.35 ? l / 0.35 : 1) * p.a) * aMul;
+          const w = p.size * s, h = w * p.sq;
+          const r = p.rot + (p.sway ? Math.sin(p.wob) * 0.14 : 0);
+          if (r) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(r);
+            ctx.drawImage(img, -w / 2, -h / 2, w, h);
+            ctx.restore();
+          } else {
+            ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+          }
+          break;
+        }
         default:
           ctx.globalAlpha = Math.min(cap, l * p.a) * aMul;
           setFill(ctx, p.color);
@@ -370,6 +411,8 @@
   // ---------- палитра событий: в ЕБЛАН-РЕЖИМЕ всё розовое ----------
   let feverOn = false;
   const pc = (c, i) => (feverOn ? FEVER[(i || 0) % FEVER.length] : c);
+  let party = PARTY;
+  const validPalette = (a) => Array.isArray(a) && a.length > 0 && a.every((c) => typeof c === 'string' && c);
 
   function dustColor() {
     const C = G.C;
@@ -489,8 +532,8 @@
     }
   }
 
-  function emitConfetti(x, alt, n, angMin, angMax, vMin, vMax, layer) {
-    const pal = feverOn ? FEVER : PARTY;
+  function emitConfetti(x, alt, n, angMin, angMax, vMin, vMax, layer, palette) {
+    const pal = palette || (feverOn ? FEVER : party);
     for (let i = 0; i < n; i++) {
       const a = rnd(angMin, angMax), v = rnd(vMin, vMax);
       const p = spawn(CONFETTI, x + rnd(-6, 6), alt + rnd(-6, 6), Math.cos(a) * v, Math.sin(a) * v, rnd(2.4, 3.6), rnd(3.2, 5.2), pal[(Math.random() * pal.length) | 0]);
@@ -506,9 +549,9 @@
     }
   }
 
-  function sprinkle(n) {
+  function sprinkle(n, palette) {
     const top = G.GROUND + 12;
-    const pal = feverOn ? FEVER : PARTY;
+    const pal = palette || (feverOn ? FEVER : party);
     for (let i = 0; i < n; i++) {
       const p = spawn(CONFETTI, rnd(0, G.W), top + rnd(0, 40), rnd(-40, 40), rnd(-60, 0), rnd(2.8, 4.2), rnd(3, 5), pal[(Math.random() * pal.length) | 0]);
       p.drag = 3.2;
@@ -522,10 +565,80 @@
     }
   }
 
-  function cannons(n) {
+  function cannons(n, palette) {
     const k = G.H / G.BASE_H, alt = G.GROUND - G.H - 10;
-    emitConfetti(-8, alt, n, 0.8, 1.45, 900 * k, 1250 * k, L_SCREEN);
-    emitConfetti(G.W + 8, alt, n, Math.PI - 1.45, Math.PI - 0.8, 900 * k, 1250 * k, L_SCREEN);
+    emitConfetti(-8, alt, n, 0.8, 1.45, 900 * k, 1250 * k, L_SCREEN, palette);
+    emitConfetti(G.W + 8, alt, n, Math.PI - 1.45, Math.PI - 0.8, 900 * k, 1250 * k, L_SCREEN, palette);
+  }
+
+  function emitFlame(x, alt, n, o) {
+    const spread = o.spread == null ? 3 : o.spread;
+    const vy = o.vy == null ? 40 : o.vy;
+    const layer = layerOf(o.layer);
+    for (let i = 0; i < n; i++) {
+      const p = spawn(FLAME, x + rnd(-spread, spread), alt + rnd(-spread, spread), (o.vx || 0) + rnd(-18, 18), vy + rnd(-14, 14), (o.life || 0.35) * rnd(0.8, 1.2), (o.size || 5) * rnd(0.8, 1.2), o.color || FIRE_IN);
+      p.color2 = o.color2 || FIRE_OUT;
+      p.g = o.g == null ? -60 : o.g;
+      p.drag = o.drag == null ? 1.5 : o.drag;
+      p.anchor = o.anchor == null ? 1 : o.anchor;
+      p.a = o.a == null ? 1 : o.a;
+      p.layer = layer;
+    }
+  }
+
+  function emitSprite(img, x, alt, o) {
+    if (!img || !img.width || !img.height || !Number.isFinite(x) || !Number.isFinite(alt)) return null;
+    const w = o.w > 0 ? o.w : 18;
+    const p = spawn(SPRITE, x, alt, o.vx || 0, o.vy || 0, o.life || 1.2, w, WHITE);
+    p.img = img;
+    p.sq = img.height / img.width;
+    p.g = o.g || 0;
+    p.drag = o.drag || 0;
+    p.rot = o.rot || 0;
+    p.vr = o.vr || 0;
+    p.pop = reduced ? 0 : o.pop == null ? 0.22 : o.pop;
+    p.anchor = o.anchor == null ? 1 : o.anchor;
+    p.a = o.a == null ? 1 : o.a;
+    if (o.sway && !reduced) {
+      p.sway = o.sway;
+      p.wf = o.wf || rnd(3, 5);
+      p.wob = rnd(0, TAU);
+    }
+    p.layer = layerOf(o.layer);
+    return p;
+  }
+
+  // anchor < 1: салют далеко в небе, мир под ним уезжает быстрее.
+  let saluteAt = -1e9;
+  function salute(x, alt, o) {
+    const now = G.state.realT;
+    if (now - saluteAt < 0.35) return false;
+    saluteAt = now;
+    const pal = validPalette(o.colors) ? o.colors : party;
+    const anchor = o.anchor == null ? 0.15 : o.anchor;
+    const rise = reduced ? 0.01 : 0.55, lift = 110, g = gen;
+    if (!reduced) {
+      const p = spawn(FLAME, x, alt - lift, 0, lift / rise, rise, 2.4, WHITE);
+      p.color2 = pal[0];
+      p.anchor = anchor;
+      p.layer = L_BACK;
+    }
+    G.after(rise, () => {
+      if (g !== gen) return;
+      const bx = x - anchor * (G.state.speed || 0) * rise;
+      const n = reduced ? 10 : o.n || 28;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + rnd(-0.12, 0.12), s = rnd(150, 230);
+        const p = spawn(SPARK, bx, alt, Math.cos(a) * s, Math.sin(a) * s, rnd(0.7, 1.1), rnd(1.8, 2.6), pal[i % pal.length]);
+        p.drag = 1.6;
+        p.g = 120;
+        p.anchor = anchor;
+        p.layer = L_BACK;
+      }
+      const r = emitRing(bx, alt, 6, reduced ? 40 : 70, 2.5, 0.5, pal[0], 1, L_BACK);
+      r.anchor = anchor;
+    });
+    return true;
   }
 
   function centerAlt(o) {
@@ -692,6 +805,177 @@
       ctx.strokeText(p.text, 0, 0);
       ctx.fillStyle = p.fill;
       ctx.fillText(p.text, 0, 0);
+      ctx.restore();
+    }
+  }
+
+  // ---------- штампы: печать с рамкой, спрайт на текст и цвет ----------
+  const STAMP_SLAM = 0.11;
+  const stamps = [];
+  for (let i = 0; i < MAX_STAMPS; i++) stamps.push({ on: false, text: '', color: '', sp: null, x: 0, alt: 0, rot: 0, t: 0, born: 0, life: 1, hit: false });
+  const stampCache = new Map();
+  const stampK = () => clamp((G.scale || 1) * (G.dpr || 1), 1, 3);
+
+  function hashStr(s) {
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    return h >>> 0;
+  }
+  function buildStamp(text, color, k) {
+    let size = 22;
+    let font = fontFor(size);
+    let w = textWidth(text, font, size);
+    const maxW = Math.max(110, G.W * 0.8) - 30;
+    if (w > maxW) {
+      size = Math.max(11, Math.floor((size * maxW) / w));
+      font = fontFor(size);
+      w = textWidth(text, font, size);
+    }
+    const cw = w + 30, ch = size * 1.2 + 22;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(cw * k));
+    c.height = Math.max(1, Math.ceil(ch * k));
+    const x = c.getContext('2d');
+    if (x) {
+      x.setTransform(k, 0, 0, k, 0, 0);
+      x.lineJoin = 'round';
+      x.font = font;
+      x.textAlign = 'center';
+      x.textBaseline = 'middle';
+      for (let pass = 0; pass < 2; pass++) {
+        const halo = pass === 0;
+        x.globalAlpha = halo ? 0.55 : 1;
+        x.strokeStyle = halo ? WHITE : color;
+        x.fillStyle = halo ? WHITE : color;
+        x.lineWidth = halo ? 5.5 : 3;
+        G.draw.rr(x, 4, 4, cw - 8, ch - 8, 6);
+        x.stroke();
+        x.lineWidth = halo ? 3.4 : 1.3;
+        G.draw.rr(x, 8.5, 8.5, cw - 17, ch - 17, 3.5);
+        x.stroke();
+        if (halo) {
+          x.lineWidth = 3;
+          x.strokeText(text, cw / 2, ch / 2 + 1);
+        } else {
+          x.fillText(text, cw / 2, ch / 2 + 1);
+        }
+      }
+      x.globalCompositeOperation = 'destination-out';
+      let seed = hashStr(text) || 1;
+      const r = () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return seed / 4294967296;
+      };
+      const holes = Math.round((cw * ch) / 90);
+      for (let i = 0; i < holes; i++) {
+        x.globalAlpha = 0.3 + r() * 0.55;
+        disc(x, 4 + r() * (cw - 8), 4 + r() * (ch - 8), 0.35 + r() * 1.1);
+      }
+      x.globalAlpha = 0.5;
+      x.lineWidth = 0.8;
+      x.strokeStyle = '#000';
+      x.beginPath();
+      const sy = ch * (0.3 + r() * 0.4);
+      x.moveTo(cw * (0.1 + r() * 0.2), sy);
+      x.lineTo(cw * (0.6 + r() * 0.3), sy + (r() - 0.5) * 4);
+      x.stroke();
+    }
+    return { c, w: cw, h: ch };
+  }
+  function stampSprite(st) {
+    if (st.sp) return st.sp;
+    const k = stampK();
+    const key = st.text + '|' + st.color + '|' + k + '|' + Math.round(G.W);
+    let sp = stampCache.get(key);
+    if (!sp) {
+      sp = buildStamp(st.text, st.color, k);
+      stampCache.set(key, sp);
+      if (stampCache.size > 8) stampCache.delete(stampCache.keys().next().value);
+    }
+    st.sp = sp;
+    return sp;
+  }
+  function dropStampSprites() {
+    stampCache.clear();
+    for (const st of stamps) st.sp = null;
+  }
+
+  function spawnStamp(text, o) {
+    text = String(text == null ? '' : text).trim();
+    if (!text) return null;
+    const color = typeof o.color === 'string' && o.color ? o.color : STAMP_INK;
+    const now = G.state.realT;
+    let st = null;
+    for (const s of stamps) {
+      if (s.on && (s.text === text || now - s.born < 0.3)) { st = s; break; }
+    }
+    if (st && st.text === text && st.color === color && st.t < 0.5) return st;
+    if (!st) st = stamps.find((s) => !s.on) || stamps.reduce((a, b) => (a.life - a.t < b.life - b.t ? a : b));
+    st.on = true;
+    st.text = text;
+    st.color = color;
+    st.sp = null;
+    st.x = Number.isFinite(o.x) ? o.x : G.W / 2;
+    st.alt = Number.isFinite(o.alt) ? o.alt : G.GROUND - G.H * 0.42;
+    st.rot = Number.isFinite(o.rot) ? o.rot : rnd(-0.16, -0.06);
+    st.t = 0;
+    st.born = now;
+    st.life = o.life > 0 ? Math.min(4, o.life) : 1.4;
+    st.hit = false;
+    return st;
+  }
+  function updateStamps(rdt) {
+    for (const st of stamps) {
+      if (!st.on) continue;
+      st.t += rdt;
+      if (st.t >= st.life) {
+        st.on = false;
+        continue;
+      }
+      if (!st.hit && st.t >= STAMP_SLAM) {
+        st.hit = true;
+        if (!reduced) {
+          const sp = stampSprite(st);
+          for (let i = 0; i < 7; i++) {
+            const side = i & 1 ? 1 : -1;
+            const p = spawn(DOT, st.x + side * sp.w * rnd(0.3, 0.55), st.alt + rnd(-sp.h, sp.h) * 0.5, side * rnd(40, 120), rnd(-20, 60), rnd(0.25, 0.4), rnd(1, 1.8), st.color);
+            p.drag = 4;
+            p.anchor = 0;
+          }
+          if (G.state.mode === 'run') kick(0, 22);
+        }
+      }
+    }
+  }
+  function drawStamps(ctx) {
+    const W = G.W, H = G.H, GR = G.GROUND;
+    for (const st of stamps) {
+      if (!st.on) continue;
+      const sp = stampSprite(st);
+      const t = st.t;
+      let sc = 1, a;
+      if (reduced) {
+        a = Math.min(1, t / 0.15);
+      } else if (t < STAMP_SLAM) {
+        const e = t / STAMP_SLAM;
+        sc = 1.8 - 0.86 * e * e;
+        a = Math.min(1, t / 0.05);
+      } else {
+        sc = 0.94 + 0.06 * Math.min(1, (t - STAMP_SLAM) / 0.12);
+        a = 1;
+      }
+      const left = st.life - t;
+      if (left < 0.3) a *= left / 0.3;
+      if (a <= 0.004) continue;
+      const hw = sp.w * 0.5, hh = sp.h * 0.5;
+      const x = sp.w >= W ? W / 2 : clamp(st.x, hw + 4, W - hw - 4);
+      const y = clamp(GR - st.alt, hh + 4, H - hh - 4);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(st.rot);
+      ctx.scale(sc, sc);
+      ctx.globalAlpha = 0.92 * a;
+      ctx.drawImage(sp.c, -hw, -hh, sp.w, sp.h);
       ctx.restore();
     }
   }
@@ -1528,8 +1812,12 @@
     seedLines();
     buildVignette();
     meme.key = '';
+    dropStampSprites();
   });
-  G.on('fonts', () => { meme.key = ''; });
+  G.on('fonts', () => {
+    meme.key = '';
+    dropStampSprites();
+  });
 
   G.on('start', (e) => {
     gen++;
@@ -1543,6 +1831,7 @@
     ambKind.fill(0);
     recycle = 0;
     for (let i = 0; i < MAX_POPUPS; i++) popups[i].on = false;
+    for (const st of stamps) st.on = false;
     slow.on = false;
     band.on = false;
     dizzy.on = false;
@@ -1836,6 +2125,7 @@
     updateDirector(rdt);
     updateParticles(dt);
     updatePopups(rdt);
+    updateStamps(rdt);
     updateSlowmo(rdt);
     updateFeet(dt, S.dx);
     if (S.mode === 'run' && B.alt <= 0 && S.dx > 0) {
@@ -1879,6 +2169,7 @@
   });
   G.onRender(LAYER.FX + 2.5, (ctx) => drawParticles(ctx, L_AMBF, 1 - 0.5 * duck, 0.35));
   G.onRender(LAYER.FRONT + 5, drawPopups);
+  G.onRender(LAYER.FRONT + 5.5, drawStamps);
   G.onRender(LAYER.SCREEN, drawScreen);
 
   const debug = { flashLog };
@@ -1900,7 +2191,26 @@
     sparks(x, alt, o = {}) { emitSparks(x, alt, o.n || 10, o.speed || 220, o.color || GOLD, o.color2 || o.color || GOLD); },
     stars(x, alt, n, o = {}) { emitStars(x, alt, n || 5, o.speed || 180, o.size || 4); },
     ring(x, alt, o = {}) { emitRing(x, alt, o.from || 4, o.r || 40, o.width || 3, o.life || 0.35, o.color || WHITE, o.squash || 1, o.back ? L_BACK : L_FRONT); },
-    confetti(n) { sprinkle(n || 30); },
+    confetti(n, palette) { sprinkle(n || 30, validPalette(palette) ? palette : null); },
+    cannons(n, palette) { cannons(n || 20, validPalette(palette) ? palette : null); },
+    palette(name, colors) {
+      if (name !== 'party') return null;
+      if (colors === null) party = PARTY;
+      else if (validPalette(colors)) party = colors.slice();
+      return party.slice();
+    },
+    stamp(text, o = {}) { return spawnStamp(text, o || {}); },
+    sprite(img, x, alt, o = {}) { return emitSprite(img, x, alt, o || {}); },
+    flame(x, alt, o = {}) {
+      o = o || {};
+      if (Number.isFinite(x) && Number.isFinite(alt)) emitFlame(x, alt, Math.max(1, Math.min(24, Math.round(o.n || 1))), o);
+    },
+    salute(x, alt, o = {}) {
+      o = o || {};
+      const sx = Number.isFinite(x) ? x : rnd(0.2, 0.8) * G.W;
+      const sa = Number.isFinite(alt) ? alt : rnd(0.55, 0.8) * G.GROUND;
+      return salute(sx, sa, o);
+    },
     feathers(x, alt, n) { emitFeathers(x, alt, n || 6); },
     paper(x, alt, n) { emitPaper(x, alt, n || 8, 1, NOTES); },
     flash(alpha, color) { return flashOn(alpha == null ? 0.3 : alpha, color, 2); },
@@ -1912,6 +2222,7 @@
     memeShot: { get on() { return meme.on; }, get done() { return meme.done; } },
     debug,
     get reduced() { return reduced; },
+    get stamps() { let n = 0; for (const st of stamps) if (st.on) n++; return n; },
     get count() { return count; },
     get ambientCount() { return ambCount; },
     get duck() { return duck; },
