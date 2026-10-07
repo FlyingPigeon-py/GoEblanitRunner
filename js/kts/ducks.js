@@ -502,7 +502,7 @@
       const def = K.raw('ducks', spot);
       p.spot = spot;
       p.look = (def && def.look) || '';
-      p.legend = !!(def && def.legendary);
+      p.legend = p.legendary = !!(def && def.legendary);
       p.life = 0;
       p.trail = 0;
       if (o.grab) return;

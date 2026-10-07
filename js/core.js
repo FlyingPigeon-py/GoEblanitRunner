@@ -202,7 +202,24 @@
   G.worldToDom = (x, alt) => ({ x: x * G.scale, y: (G.GROUND - (alt || 0)) * G.scale });
 
   // Набранные с клавиатуры символы для секретных слов: raw — как набрано, buffer — строчными.
-  G.words = { raw: '', buffer: '' };
+  const wordGuards = [];
+  G.words = {
+    raw: '',
+    buffer: '',
+    guard(fn) {
+      if (typeof fn === 'function') wordGuards.push(fn);
+    },
+  };
+  function typingWord() {
+    for (const fn of wordGuards) {
+      try {
+        if (fn(G.words.buffer, G.words.raw)) return true;
+      } catch (e) {
+        G.report('words.guard', e);
+      }
+    }
+    return false;
+  }
   G.typeWord = (text, source) => {
     const t = String(text == null ? '' : text).trim();
     if (t) G.emit('word', { text: t, lower: t.toLowerCase(), source: source || 'field' });
@@ -730,7 +747,8 @@
         if (!e.repeat) G.press('key');
         return;
       }
-      if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+      const typing = !!e.key && e.key.length === 1 && wordGuards.length > 0 && typingWord();
+      if (e.code === 'ArrowDown' || (e.code === 'KeyS' && !typing)) {
         e.preventDefault();
         G.input.fastFall = true;
         return;
@@ -740,7 +758,7 @@
         else if (G.state.mode === 'pause') G.resume();
         return;
       }
-      G.emit('key', e);
+      if (!typing) G.emit('key', e);
     });
     window.addEventListener('keyup', (e) => {
       if (JUMP_KEYS.has(e.code)) G.release();

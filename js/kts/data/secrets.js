@@ -135,6 +135,6 @@
       gm: [0, 60, 144, 192, 240, 360, 480, 660, 900, 1260],
       id: ['living:morning', 'kitchen', 'living:noon', 'metro', 'office', 'baikal', 'roof', 'bedroom', 'dream', 'living:dawn'],
     },
-    ui: { toastKind: 'info', toastSec: 4 },
+    ui: { toastKind: 'kts', toastSec: 4 },
   });
 })();

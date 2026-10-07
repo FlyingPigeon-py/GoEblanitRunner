@@ -30,10 +30,7 @@
   }
   function confetti(n) {
     const fx = G.fx;
-    if (!fx) return;
-    const k = calm() ? Math.ceil(n / 3) : n;
-    if (typeof fx.ktsConfetti === 'function') fx.ktsConfetti(k);
-    else if (typeof fx.confetti === 'function') fx.confetti(k);
+    if (fx && typeof fx.confetti === 'function') fx.confetti(calm() ? Math.ceil(n / 3) : n);
   }
   function bonus(p, minutes, label, kind) {
     G.addBonus(minutes, { x: p.x, alt: p.alt + 22, label, kind });
@@ -43,7 +40,7 @@
     return !p.taken && p.x < hb.x - hb.r - 18;
   };
 
-  const run = { cakes: 0, twin: false, sheets: 0, sheetsChecked: false, toasted: Object.create(null), lastKhrT: -1e9 };
+  const run = { cakes: 0, twin: false, cakeReq: null, cakeEnd: 0, sheets: 0, sheetsChecked: false, toasted: Object.create(null), lastKhrT: -1e9 };
   const once = (key) => (run.toasted[key] ? false : (run.toasted[key] = true));
   const session = Object.create(null);
   const onceEver = (key) => (session[key] ? false : (session[key] = true));
@@ -140,7 +137,7 @@
         run.cakes++;
         bonus(p, Number(CAKE.minutes) || 0, CAKE.popup, 'cake');
         K.count('denis');
-        confetti(36);
+        if (!(G.fx && typeof G.fx.ktsConfetti === 'function')) confetti(36);
         if (G.fx && G.fx.burst) G.fx.burst(p.x, p.alt, { n: 16, speed: 190, color: '#ff8fb1', life: 0.6, size: 3 });
         cakeToast(run.cakes > 1);
         if (run.cakes === 1 && run.twin) {
@@ -153,12 +150,21 @@
   }
 
   function planCake() {
+    run.cakeReq = null;
     if (!CAKE) return;
     const w = Array.isArray(CAKE.window) ? CAKE.window : [];
     const a = tOf(w[0]), b = tOf(w[1]);
-    const at = a + (b - a) * Math.pow(Math.random(), Number(CAKE.skew) || 1);
-    queue('cake', at, Math.min(b, at + (Number(CAKE.retry) || 20)));
+    const span = Number(CAKE.retry) || 20;
+    const at = a + Math.max(0, b - span - a) * Math.pow(Math.random(), Number(CAKE.skew) || 1);
+    run.cakeEnd = b;
+    run.cakeReq = queue('cake', at, at + span);
     run.twin = Math.random() < (Number(CAKE.twinChance) || 0);
+  }
+  function retryCake() {
+    const req = run.cakeReq;
+    const t = G.state.t;
+    if (!req || !req.dropped || t >= run.cakeEnd) return;
+    run.cakeReq = queue('cake', t, Math.min(run.cakeEnd, t + (Number(CAKE.retry) || 20)));
   }
 
   // ---------- жабонька среды ----------
@@ -657,6 +663,7 @@
   G.onUpdate(() => {
     if (G.state.mode !== 'run') return;
     updateVpn();
+    retryCake();
     checkMissed();
     checkSheets();
   }, 28);

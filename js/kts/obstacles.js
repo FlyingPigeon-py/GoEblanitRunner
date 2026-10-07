@@ -13,7 +13,7 @@
   const HB = cfg.hitbox;
 
   // ---------- помощники П1 ----------
-  const TOAST_KIND = 'info';
+  const TOAST_KIND = 'kts';
   const item = (id) => K.get('items', id);
   function tOf(hhmm) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
@@ -82,6 +82,12 @@
   G.ktsItems = { item, say, toast, popup, tOf, sprite, blit, event: kevent };
 
   const npcs = new Set();
+  function npcBusy() {
+    if (npcs.size) return true;
+    const N = K.npc;
+    const who = N && typeof N.active === 'function' ? N.active() : null;
+    return !!who && who !== 'vivi';
+  }
   G.on('kts:npc', (e) => {
     if (!e || !e.id) return;
     if (e.phase === 'leave') npcs.delete(e.id);
@@ -301,7 +307,7 @@
     vivi.alt0 = 128;
     vivi.x = vivi.x0;
     vivi.alt = vivi.alt0;
-    kevent('vivi', 'start');
+    kevent('vivi', 'start', { x: o.x, alt: (o.alt || 0) + VAC_TOP });
   }
   function viviEnd() {
     if (!vivi.on) return;
@@ -318,7 +324,7 @@
         if (o.type !== 'vacuum' || !o.viviPlan || !live(o) || o.x - VAC_HALF > G.W - 6) continue;
         o.viviPlan = false;
         const reach = o.x - S.speed * (o.drift || 1) * LEAP_T;
-        if (npcs.size || reach < G.bunny.x + VIVI_MARGIN) continue;
+        if (npcBusy() || reach < G.bunny.x + VIVI_MARGIN) continue;
         viviStart(o);
         break;
       }

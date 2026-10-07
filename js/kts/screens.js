@@ -6,7 +6,7 @@
   if (!K || !K.enabled || !G.ui || typeof G.ui.textHook !== 'function') return;
   const doc = document;
   const $ = (id) => doc.getElementById(id);
-  const toast = G.ui.toast;
+  const toast = (label, text, opts) => G.ui.toast(label, text, opts);
   const rich = G.ui.rich;
   const slot = G.ui.slot;
 
@@ -87,6 +87,7 @@
     if (key === 'share') return shareText(ctx && ctx.info);
     if (key === 'toast.grade.label') {
       const g = ctx && ctx.grade;
+      if (g && typeof g.cheer === 'string' && g.cheer) return g.cheer;
       if (g && /^Лид/.test(String(g.name || ''))) {
         const lead = uiLine('toast.grade.lead');
         if (lead !== undefined) return lead;
@@ -464,7 +465,7 @@
     if (typeof p === 'string' && p) return { text: p };
     if (p && typeof p.text === 'string' && p.text) {
       const came = typeof p.came === 'boolean' ? p.came : typeof p.fulfilled === 'boolean' ? p.fulfilled : undefined;
-      return { text: p.text, came };
+      return { text: p.text, came, title: typeof p.title === 'string' && p.title ? p.title : null };
     }
     return run.predict ? { text: run.predict } : null;
   }
@@ -479,7 +480,7 @@
     } else {
       const p = prediction();
       if (p) {
-        title = line('bot', 'pick');
+        title = p.title || line('bot', 'pick');
         text = p.text;
         if (p.came === true) tail = line('bot', 'came');
         else if (p.came === false) tail = line('bot', 'missed');

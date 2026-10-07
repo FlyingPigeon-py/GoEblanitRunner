@@ -987,7 +987,7 @@
     };
   }
 
-  const isCarrot = (p) => !!p && (p.type === 'carrot' || p.type === 'gold');
+  const isCarrot = (p) => !!p && (p.type === 'carrot' || p.type === 'gold' || !!(G.pickupTypes[p.type] && G.pickupTypes[p.type].carrotLike));
   const clockTxt = (m) => G.fmtClock(G.cfg.startClockMin + Math.floor(m));
   const gameMin = () => num(G.state.t) * G.cfg.minPerSec;
   const coffeeOn = () => !!(G.powerups && typeof G.powerups.isActive === 'function' && G.powerups.isActive('coffee'));

@@ -90,6 +90,7 @@
   }
   G.on('fonts', () => { gen++; });
   G.on('theme', () => { gen++; });
+  const built = new Set();
   function mk(key, w, h, ox, oy, draw, kMax) {
     const k = Math.min(kit.K || 2, kMax || 2);
     const c = document.createElement('canvas');
@@ -104,6 +105,7 @@
       draw(x, sp);
     }
     cache.set(key, sp);
+    built.add(key);
     return sp;
   }
   function dropKey(key) {
@@ -1440,6 +1442,7 @@
     courier: (delay) => { courier.force = Number.isFinite(delay) ? Math.max(0, delay) : 0; },
     get wifiDead() { return wifiDead; },
     day,
+    built: (key) => built.has(key),
   };
 
   function setSalute(on) {

@@ -2441,12 +2441,22 @@
     else sfx.voiceMsg();
     return true;
   }
+  const jammed = typeof WeakSet === 'function' ? new WeakSet() : null;
+  function ghostThrough(o) {
+    if (!jammed || jammed.has(o) || !isComm(o.type) || !vpnOn()) return;
+    const def = G.obstacleTypes[o.type];
+    if (!def || typeof def.hit !== 'function' || !def.hit(o, G.bunnyHitbox())) return;
+    jammed.add(o);
+    sfx.jam();
+  }
   function ktsScan() {
     const list = G.obstacles;
     if (!heard || !list || G.state.mode !== 'run' || !ktsOn()) return;
     for (let i = 0; i < list.length; i++) {
       const o = list[i];
-      if (o && (o.type === 'vacuum' || o.type === 'voice') && !o.dead && !o.deco && o.x - 30 < G.W) ktsEnter(o);
+      if (!o || o.dead) continue;
+      if (o.ghost && !o.ballistic) ghostThrough(o);
+      else if ((o.type === 'vacuum' || o.type === 'voice') && !o.deco && o.x - 30 < G.W) ktsEnter(o);
     }
   }
 
@@ -2602,7 +2612,7 @@
     if (e.id === 'vivi') sfx.vivi();
     else if (e.id === 'cakeMissed') sfx.cakeMissed();
     else if (e.id === 'birthday' && !bdayRun) playBirthday(true);
-    else if (e.id === 'salute') sfx.salute();
+    else if (e.id === 'salute' || e.id === 'may9') sfx.salute();
   });
   G.on('kts:secret', (e) => {
     if (!e || !ktsOn() || !N) return;

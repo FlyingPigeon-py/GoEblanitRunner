@@ -124,6 +124,7 @@
   const counters = K.store.get('counters', {}) || {};
   K.counter = (key) => Number(counters[key]) || 0;
   K.count = (key, delta = 1) => {
+    if (!K.enabled) return K.counter(key);
     const value = K.counter(key) + delta;
     counters[key] = value;
     K.store.set('counters', counters);
@@ -131,6 +132,7 @@
     return value;
   };
   K.setCounter = (key, value) => {
+    if (!K.enabled) return K.counter(key);
     counters[key] = value;
     K.store.set('counters', counters);
     G.emit('kts:count', { key, value, delta: 0 });
@@ -228,7 +230,9 @@
   };
   K.dayRng = (salt) => K.rng(K.today.iso + ':' + (salt || ''));
 
-  const emitDay = () => G.emit('kts:day', K.today);
+  const emitDay = () => {
+    if (K.enabled) G.emit('kts:day', K.today);
+  };
   G.on('boot', emitDay);
   G.on('start', () => {
     K.today = makeToday();

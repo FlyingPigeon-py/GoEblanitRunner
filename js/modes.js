@@ -222,7 +222,9 @@
     if (fx) {
       if (fx.hitstop) fx.hitstop(0.1, 0.035);
       if (fx.ring) fx.ring(o.x, top, { from: 6, r: 30, width: 3, life: 0.3, color: '#ffffff', squash: 0.35 });
-      if (fx.popup) fx.popup(o.x, top + 20, STOMP_WORD[o.type] || 'ОТЛОЖИЛ', { size: 14, life: 0.75, color: SNOOZE_INK });
+      const def = G.obstacleTypes[o.type];
+      const word = (def && typeof def.stompWord === 'string' && def.stompWord) || STOMP_WORD[o.type] || 'ОТЛОЖИЛ';
+      if (fx.popup) fx.popup(o.x, top + 20, word, { size: 14, life: 0.75, color: SNOOZE_INK });
     }
     G.emit('stomp', { o, type: o.type, chain: run.chain, meme });
   }
@@ -1009,6 +1011,9 @@
       view.gap = chase.gap;
       view.cause = chase.cause;
       return view;
+    },
+    addMeter(delta, reason) {
+      addMeter(Number(delta) || 0, String(reason || 'ext'));
     },
     pushChase(delta) {
       const d = Number(delta);

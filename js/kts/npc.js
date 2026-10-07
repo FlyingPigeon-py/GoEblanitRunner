@@ -10,7 +10,7 @@
   const ID = 'toxic';
   const OFF_KEY = 'npc.toxicOff';
   const LAYER_BOT = G.LAYER.FX + 3;
-  const TOAST_KIND = 'info';
+  const TOAST_KIND = 'kts';
 
   const ENTER_T = 1.2, TEL_T = 1, SWOOP_T = 0.45, OUT_T = 1.1, AWAY_T = 0.9, BLOCKED_T = 1.1;
   const PLACE_WAIT = 4, MAX_LEAD = 5, RESERVE_T = 10, PLAN_STEP = 0.25, POSTPONE_T = 2, MAX_POSTPONE = 4;
@@ -269,12 +269,13 @@
     bot.mood = 'blocked';
     bot.bubble = null;
     const tt = def.blockToast || {};
-    G.emit('kts:npc', { id: ID, phase: 'blocked', text: tt.text || '' });
+    G.emit('kts:npc', { id: ID, phase: 'blocked', text: tt.text || '', x: bot.x, alt: bot.alt + 26 });
     if (tt.label && G.ui && typeof G.ui.toast === 'function') G.ui.toast(tt.label, tt.text || null, { kind: TOAST_KIND, duration: 3.2 });
     const fx = G.fx;
     if (fx) {
-      if (typeof fx.stamp === 'function') fx.stamp(def.blockStamp || 'ЗАБЛОКИРОВАН', { x: bot.x, alt: bot.alt + 26, color: ALERT, rot: -0.12 });
-      else if (typeof fx.popup === 'function') fx.popup(bot.x, bot.alt + 26, def.blockStamp || 'ЗАБЛОКИРОВАН', { color: ALERT, size: 15, life: 1 });
+      const stampedByFx = typeof fx.react === 'function';
+      if (!stampedByFx && typeof fx.stamp === 'function') fx.stamp(def.blockStamp || 'ЗАБЛОКИРОВАН', { x: bot.x, alt: bot.alt + 26, color: ALERT, rot: -0.12 });
+      else if (!stampedByFx && typeof fx.popup === 'function') fx.popup(bot.x, bot.alt + 26, def.blockStamp || 'ЗАБЛОКИРОВАН', { color: ALERT, size: 15, life: 1 });
       if (typeof fx.burst === 'function') fx.burst(bot.x, bot.alt, { n: G.calm ? 6 : 14, speed: 160, color: INK.angry, life: 0.45 });
     }
     const pu = G.powerups;
@@ -404,7 +405,7 @@
   }
   function prediction(kind, title, text) {
     if (!text) return null;
-    return { kind, title: K.fmt(title || '') || '', text, toString() { return this.text; } };
+    return { kind, title: K.fmt(title || '') || '', text, came: kind === 'right' ? true : undefined, toString() { return this.text; } };
   }
   function overLine(info) {
     const def = conf();

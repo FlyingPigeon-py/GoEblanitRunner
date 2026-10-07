@@ -656,6 +656,36 @@
     if (p && (lower.endsWith(p) || lower.endsWith(squash(p)))) trusyLower();
   });
 
+  function voiceOnScreen() {
+    for (const o of G.obstacles) if (o.type === 'voice' && !o.dead && !o.deco && !o.ballistic && o.x > -40 && o.x < G.W + 60) return true;
+    return false;
+  }
+  function typedWords() {
+    const out = [];
+    const tr = sec('trusy');
+    if (tr && tr.phrase) out.push(norm(tr.phrase), squash(norm(tr.phrase)));
+    if (G.state.mode === 'run') {
+      const st = sec('stopword');
+      if (st && Array.isArray(st.words) && voiceOnScreen()) for (const w of st.words) out.push(norm(w));
+      return out;
+    }
+    const dr = sec('drullegi'), pl = sec('plov');
+    if (dr && Array.isArray(dr.words)) for (const w of dr.words) out.push(norm(w));
+    if (pl && pl.word) out.push(norm(pl.word));
+    return out;
+  }
+  function midWord(buffer) {
+    const lower = String(buffer || '').replace(/ё/g, 'е');
+    const tails = [lower, toRu(lower)];
+    for (const w of typedWords()) {
+      for (const tail of tails) {
+        for (let n = Math.min(w.length, tail.length); n >= 2; n--) if (tail.endsWith(w.slice(0, n))) return true;
+      }
+    }
+    return false;
+  }
+  if (G.words && typeof G.words.guard === 'function') G.words.guard(midWord);
+
   // ---------- секретки по событиям ----------
   const run = { cakes: 0, escaped: false, bossWon: false };
   G.on('start', () => {
@@ -849,6 +879,7 @@
     }
     return a;
   }
+  const worldPoster = () => (!kz.a.own && G.ktsWorld && typeof G.ktsWorld.kotzilla === 'function' ? G.ktsWorld : null);
   function kzTap() {
     const d = sec('kotzilla');
     if (!d || G.state.mode !== 'start') return;
@@ -856,12 +887,21 @@
     kz.pop = 0.22;
     kz.variant = kz.n % KZ_PAL.length;
     G.emit('kts:egg', { id: 'kotzilla', phase: 'click', n: kz.n });
-    if (kz.n < (d.clicks || 7)) return;
+    const W = worldPoster();
+    if (kz.n < (d.clicks || 7)) {
+      if (W) W.kotzilla(kz.n);
+      return;
+    }
     kz.n = 0;
     kz.variant = 0;
     kz.wink = 1.8;
     G.emit('kts:egg', { id: 'kotzilla', phase: 'meow' });
-    K.secret('kotzilla');
+    const first = K.secret('kotzilla');
+    if (W) {
+      W.kotzilla(0);
+      if (!first && typeof W.wink === 'function') W.wink(1.8);
+      if (G.fx && typeof G.fx.popup === 'function') G.fx.popup(kz.a.x, kz.a.alt + kz.a.h / 2 + 8, d.meow || 'МЯУ', { size: 16, life: 1.2, color: '#2fbf71' });
+    }
   }
   const kzOn = () => G.state.mode === 'start' && !!sec('kotzilla');
   G.onUpdate((dt, realDt) => {
@@ -878,7 +918,7 @@
   G.onRender(G.LAYER.BACK + 0.6, (ctx) => {
     if (!kzOn()) return;
     const a = kz.a;
-    if (!a.own && !kz.n && !kz.wink) return;
+    if (!a.own && (worldPoster() || (!kz.n && !kz.wink))) return;
     const d = sec('kotzilla');
     const hat = !!(d && d.newYearHat && K.event('newYear'));
     const wink = kz.wink > 0;
