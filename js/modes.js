@@ -40,15 +40,26 @@
   const LEAD_CAUSE = 'Тимлид догнал. Минутка длилась до вечера.';
   const FALLBACK_RESERVED = [[40, 46, 'event'], [58, 66, 'event'], [103, 126, 'allhands'], [134, 139, 'event'], [269, 275, 'event']];
   const LEAD_W = 56, LEAD_H = 84, LEAD_OX = 26;
+  const BUBBLE_WRAP = 120;
+
+  const ktsLead = () => (G.kts && G.kts.enabled ? G.kts.get('npc', 'teamlead') : null);
+  function ktsTexts(list) {
+    const out = [];
+    if (Array.isArray(list)) for (const s of list) {
+      const t = G.kts.fmt(s);
+      if (t) out.push(t);
+    }
+    return out;
+  }
 
   const KEY_TIPS = 'eblan.modes.tips';
   const tips = G.store.getJSON(KEY_TIPS, null) || {};
 
   // ---------- состояние забега ----------
-  const run = { chain: 0, meme: 0, lastMult: 1, boss: false, stumbleT: -1 };
+  const run = { chain: 0, meme: 0, lastMult: 1, boss: false, stumbleT: -1, timesheet: false, late: false };
   const meter = { v: 0, upT: -99, dirty: false, delta: 0, reason: '', sentFloor: 0 };
   const fever = { on: false, left: 0, total: 0, held: false, grace: 0, vis: 0, transient: false };
-  const chase = { on: false, phase: null, cause: '', gap: 0, t: 0, endT: -99, nextAt: SCHEDULE[0], idx: 0, ph: 0, show: false, over: false };
+  const chase = { on: false, phase: null, cause: '', gap: 0, t: 0, endT: -99, nextAt: SCHEDULE[0], idx: 0, ph: 0, show: false, over: false, extra: 0, bt: 0, late: false };
   const view = { phase: null, gap: 0, cause: '' };
   const probe = { x: 0, y: 0, r: 0 };
 
@@ -301,7 +312,10 @@
     return null;
   }
   function emitChase() {
-    G.emit('chase', { phase: chase.phase, gap: Math.round(chase.gap), cause: chase.cause });
+    const e = { phase: chase.phase, gap: Math.round(chase.gap), cause: chase.cause };
+    const lead = chase.phase === 'caught' ? ktsLead() : null;
+    if (lead && lead.hud) e.label = G.kts.fmt(lead.hud) || undefined;
+    G.emit('chase', e);
   }
   function setPhase(p) {
     chase.phase = p;
@@ -314,12 +328,21 @@
     chase.over = false;
     chase.cause = cause;
     chase.ph = 0;
+    chase.extra = 0;
+    chase.bt = 0;
+    chase.late = false;
     dir('enter', 'chase');
+    const lead = cause === 'stumble' ? null : ktsLead();
+    if (lead && !run.timesheet && !run.late && G.pickupTypes.timesheet && G.state.t >= (lead.noTimesheetFrom || 0) && lead.noTimesheetGap > 0) {
+      run.late = true;
+      chase.late = true;
+      chase.extra = lead.noTimesheetGap - GAP_SCHED;
+    }
     if (cause === 'stumble') {
       chase.gap = GAP_STUMBLE;
       setPhase('start');
     } else {
-      chase.gap = GAP_SCHED;
+      chase.gap = GAP_SCHED + chase.extra;
       setPhase('warn');
     }
   }
@@ -340,7 +363,9 @@
     addMeter(DELTA.caught, 'caught');
     setPhase('caught');
     if (G.fx && G.fx.shake) G.fx.shake(3);
-    if (G.fx && G.fx.popup) G.fx.popup(B.x + 20, B.alt + 74, 'РАБОТАЮ…', { size: 15, life: 1.1, color: G.C.muted });
+    const lead = ktsLead();
+    const word = (lead && lead.working && G.kts.fmt(lead.working)) || 'РАБОТАЮ…';
+    if (G.fx && G.fx.popup) G.fx.popup(B.x + 20, B.alt + 74, word, { size: 15, life: 1.1, color: G.C.muted });
   }
   function escape(kind) {
     const S = G.state, B = G.bunny;
@@ -378,9 +403,10 @@
       return;
     }
     chase.t += dt;
+    chase.bt += dt;
     chase.ph += (S.speed * dt) / 70;
     if (chase.phase === 'warn') {
-      chase.gap = GAP_SCHED + (GAP_WARN - GAP_SCHED) * clamp(chase.t / WARN_T, 0, 1);
+      chase.gap = GAP_SCHED + (GAP_WARN - GAP_SCHED) * clamp(chase.t / WARN_T, 0, 1) + chase.extra;
       if (chase.t >= WARN_T) setPhase('start');
     } else if (chase.phase === 'start') {
       chase.gap -= GAP_DRAIN * dt;
@@ -408,6 +434,8 @@
     run.lastMult = 1;
     run.boss = false;
     run.stumbleT = -1;
+    run.timesheet = false;
+    run.late = false;
     meter.v = 0;
     meter.upT = -99;
     meter.dirty = false;
@@ -428,6 +456,8 @@
     chase.endT = -99;
     chase.idx = 0;
     chase.nextAt = SCHEDULE[0];
+    chase.extra = 0;
+    chase.late = false;
   }
 
   G.on('boot', () => {
@@ -490,6 +520,8 @@
       addMeter(DELTA.carrot, 'carrot');
       extendFever(FEVER_CARROT);
       if (chase.phase === 'start') chase.gap += GAP.carrot;
+    } else if (p.type === 'timesheet') {
+      run.timesheet = true;
     }
   });
 
@@ -515,7 +547,8 @@
   G.on('die', (info) => {
     const live = chase.on && (chase.phase === 'warn' || chase.phase === 'start' || chase.phase === 'caught');
     if (live && info) {
-      info.cause = LEAD_CAUSE;
+      const lead = ktsLead();
+      info.cause = (lead && lead.cause && G.kts.fmt(lead.cause)) || LEAD_CAUSE;
       info.causeTag = 'teamlead';
     }
     if (fever.on) endFever('die');
@@ -573,7 +606,7 @@
 
   // ---------- кэши рисунков ----------
   let cacheK = 0, cacheDirty = true;
-  const sprites = { lead: [null, null, null], bubbleSync: null, bubbleTasks: null, label: null, laptop: null, edge: null, vig: null, vigW: 0, vigH: 0, edgeH: 0, chain: [] };
+  const sprites = { lead: [null, null, null], bubbleSync: null, bubbleTasks: null, chaseBubbles: [], lateBubbles: [], label: null, laptop: null, edge: null, vig: null, vigW: 0, vigH: 0, edgeH: 0, chain: [] };
   const markDirty = () => { cacheDirty = true; };
   G.on('resize', markDirty);
   G.on('theme', markDirty);
@@ -613,6 +646,9 @@
     for (let i = 0; i < 3; i++) sprites.lead[i] = sprite(LEAD_W, LEAD_H, LEAD_OX, LEAD_H - 1, (c) => paintLead(c, i));
     sprites.bubbleSync = bubble('Синкнемся?');
     sprites.bubbleTasks = bubble('А что по задачам?');
+    const lead = ktsLead();
+    sprites.chaseBubbles = lead ? ktsTexts(lead.chase).map(bubble).filter(Boolean) : [];
+    sprites.lateBubbles = lead ? ktsTexts(lead.lateChase).map(bubble).filter(Boolean) : [];
     sprites.label = textSprite('ТИМЛИД', 600, 10, G.C.ink, null);
     sprites.laptop = sprite(30, 22, 15, 21, paintLaptop);
     sprites.edge = null;
@@ -749,11 +785,28 @@
       c.fillText(text, 3, 0.5);
     });
   }
+  function wrapBubble(meas, text) {
+    if (meas.measureText(text).width <= BUBBLE_WRAP) return [text];
+    const words = text.split(' ');
+    let best = [text], bestW = Infinity;
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+      const w = Math.max(meas.measureText(a).width, meas.measureText(b).width);
+      if (w < bestW) {
+        bestW = w;
+        best = [a, b];
+      }
+    }
+    return best;
+  }
   function bubble(text) {
     const meas = canvasOf(1, 1).getContext('2d');
     if (!meas) return null;
     G.draw.font(meas, 600, 10.5, 'body');
-    const w = Math.ceil(meas.measureText(text).width) + 14, h = 19;
+    const lines = wrapBubble(meas, text);
+    let tw = 0;
+    for (const l of lines) tw = Math.max(tw, meas.measureText(l).width);
+    const w = Math.ceil(tw) + 14, h = 19 + (lines.length - 1) * 12;
     const x0 = -6, x1 = w - 6, y0 = -h - 6, y1 = -6, r = 6;
     return sprite(w + 2, h + 8, 7, h + 7, (c) => {
       c.fillStyle = '#fffdf8';
@@ -775,8 +828,16 @@
       G.draw.font(c, 600, 10.5, 'body');
       c.textAlign = 'left';
       c.textBaseline = 'middle';
-      c.fillText(text, x0 + 7, (y0 + y1) / 2 + 0.5);
+      const top = (y0 + y1) / 2 + 0.5 - (lines.length - 1) * 6;
+      for (let i = 0; i < lines.length; i++) c.fillText(lines[i], x0 + 7, top + i * 12);
     });
+  }
+  function chaseBubble() {
+    const list = chase.late && sprites.lateBubbles.length ? sprites.lateBubbles : sprites.chaseBubbles;
+    if (!list.length) return sprites.bubbleSync;
+    const lead = ktsLead();
+    const swap = (lead && lead.swapT) || 2.2;
+    return list[Math.floor(chase.bt / swap) % list.length];
   }
   function chainSprite(n) {
     let sp = sprites.chain[n];
@@ -844,7 +905,7 @@
     ctx.globalAlpha = 1;
     let b = null;
     if (standing && (chase.over || chase.t < BUBBLE_T)) b = sprites.bubbleTasks;
-    else if (chase.phase === 'warn' || chase.phase === 'start') b = sprites.bubbleSync;
+    else if (chase.phase === 'warn' || chase.phase === 'start') b = chaseBubble();
     if (b && S.mode !== 'start') blit(ctx, b, x + 8, G.GROUND - LEAD_H - 2 - bob);
   });
 
@@ -948,6 +1009,14 @@
       view.gap = chase.gap;
       view.cause = chase.cause;
       return view;
+    },
+    pushChase(delta) {
+      const d = Number(delta);
+      if (!chase.on || !Number.isFinite(d)) return false;
+      if (chase.phase === 'warn') chase.extra += d;
+      else if (chase.phase === 'start') chase.gap += d;
+      else return false;
+      return true;
     },
     _fill(v) {
       addMeter(Number(v) || 0, 'debug');

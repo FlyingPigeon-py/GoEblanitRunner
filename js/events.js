@@ -13,6 +13,21 @@
   let fontStamp = 0;
   let themeStamp = 0;
 
+  const ktsAllhands = () => (G.kts && G.kts.enabled ? G.kts.get('npc', 'allhands') : null);
+  function ktsText(key, fallback) {
+    const ah = ktsAllhands();
+    return (ah && typeof ah[key] === 'string' && G.kts.fmt(ah[key])) || fallback;
+  }
+  function ktsSubs() {
+    const ah = ktsAllhands();
+    const out = [];
+    if (ah && Array.isArray(ah.subs)) for (const s of ah.subs) {
+      const t = G.kts.fmt(s);
+      if (t) out.push(t);
+    }
+    return out;
+  }
+
   function makeCanvas(w, h) {
     const c = doc.createElement('canvas');
     c.width = Math.max(1, Math.ceil(w));
@@ -179,8 +194,9 @@
     phase: 'off', done: false, frozen: false, hp: 0, t0: 0, vis: 0, leaving: false,
     planned: 0, spawned: 0, lastExtraT: 0, lastSpawnT: 0, tileSeq: 0,
     lit: new Array(TILES).fill(true), speaking: 0, speakT: 0,
-    sprite: null, key: '', rect: { x: 0, y: 0, w: 0, h: 0 }, tiles: [],
-    leaveSprite: null, leaveKey: '',
+    sprite: null, key: '', rect: { x: 0, y: 0, w: 0, h: 0 }, tiles: [], screenH: 0,
+    leaveSprites: Object.create(null),
+    subs: [], subIdx: 0, subT: 0, subSprites: Object.create(null), subKey: { k: 0, w: 0, font: -1 },
   };
   const active = () => boss.phase === 'warn' || boss.phase === 'live';
 
@@ -253,6 +269,9 @@
     boss.lit.fill(true);
     boss.key = '';
     freeCanvas(boss.sprite);
+    boss.subs = ktsSubs();
+    boss.subIdx = boss.subs.length ? Math.floor(Math.random() * boss.subs.length) : 0;
+    boss.subT = 0;
   }
 
   function warn() {
@@ -306,7 +325,7 @@
 
   function win() {
     const B = G.bunny;
-    G.addBonus(WIN_BONUS, { label: 'ВСЕМ СПАСИБО, ВСЕ СВОБОДНЫ', kind: 'boss', x: B.x + 40, alt: B.alt + 90 });
+    G.addBonus(WIN_BONUS, { label: ktsText('win', 'ВСЕМ СПАСИБО, ВСЕ СВОБОДНЫ'), kind: 'boss', x: B.x + 40, alt: B.alt + 90 });
     if (G.fx && typeof G.fx.confetti === 'function') G.fx.confetti(G.calm ? 16 : 40);
     emitBoss('win');
     finish(true);
@@ -369,6 +388,14 @@
     } else if (active()) {
       boss.vis = Math.min(1, boss.vis + dt / APPEAR_SEC);
     }
+    if (active() && boss.subs.length) {
+      boss.subT += dt;
+      const ah = ktsAllhands();
+      if (boss.subT >= ((ah && ah.subT) || 2.6)) {
+        boss.subT = 0;
+        boss.subIdx = (boss.subIdx + 1) % boss.subs.length;
+      }
+    }
     if (active()) {
       boss.speakT += dt;
       if (boss.speakT > SPEAK_SEC || !boss.lit[boss.speaking]) {
@@ -396,6 +423,7 @@
     const pad = 3, gap = 2;
     const cx = pad + 2, cy = TITLE_H + 2;
     const cw = w - 2 * pad - 4, ch = h - TITLE_H - TOOL_H - 4;
+    boss.screenH = ch + 4;
     const tw = (cw - 2 * gap) / 3, th = (ch - gap) / 2;
     boss.tiles.length = 0;
     for (let k = 0; k < TILES; k++) {
@@ -484,7 +512,7 @@
     G.draw.font(ctx, 700, 6, 'display');
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText('ALL-HANDS · 16:00 · 248 УЧАСТНИКОВ', 20, TITLE_H / 2 + 0.7, R.w - 26);
+    ctx.fillText(ktsText('title', 'ALL-HANDS · 16:00 · 248 УЧАСТНИКОВ'), 20, TITLE_H / 2 + 0.7, R.w - 26);
     ctx.fillStyle = SCREEN_BG;
     rr(ctx, L.pad, TITLE_H, R.w - 2 * L.pad, L.ch + 4, 3);
     ctx.fill();
@@ -512,6 +540,39 @@
     return c;
   }
 
+  const SUB_SIZE = 5.6;
+  function subSprite(text) {
+    const K = pxK();
+    const R = boss.rect;
+    const sk = boss.subKey;
+    if (sk.k !== K || sk.w !== R.w || sk.font !== fontStamp) {
+      boss.subSprites = Object.create(null);
+      sk.k = K;
+      sk.w = R.w;
+      sk.font = fontStamp;
+    }
+    let s = boss.subSprites[text];
+    if (s) return s;
+    const probe = makeCanvas(1, 1).getContext('2d');
+    G.draw.font(probe, 600, SUB_SIZE, 'body');
+    const w = Math.max(16, Math.min(R.w - 14, (probe.measureText(text).width || text.length * 3) + 6));
+    const h = SUB_SIZE + 4;
+    const c = makeCanvas(w * K, h * K);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(K, 0, 0, K, 0, 0);
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    rr(ctx, 0, 0, w, h, 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    G.draw.font(ctx, 600, SUB_SIZE, 'body');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, w / 2, h / 2 + 0.3, w - 4);
+    s = { c, w, h };
+    boss.subSprites[text] = s;
+    return s;
+  }
+
   function windowY() {
     const k = easeOut(clamp(boss.vis, 0, 1));
     return G.calm ? WIN_TOP : WIN_TOP - (boss.rect.h + WIN_TOP + 8) * (1 - k);
@@ -526,6 +587,8 @@
     ctx.globalAlpha = a;
     ctx.drawImage(sp, x, y, R.w + 4, R.h + 4);
     if (!active()) return;
+    const sub = boss.subs.length ? subSprite(boss.subs[boss.subIdx]) : null;
+    if (sub) ctx.drawImage(sub.c, x + R.w / 2 - sub.w / 2, y + TITLE_H + boss.screenH - sub.h - 1.5, sub.w, sub.h);
     const t = boss.tiles[boss.speaking];
     if (t && boss.lit[boss.speaking]) {
       ctx.strokeStyle = SPEAK_GREEN;
@@ -560,12 +623,16 @@
 
   // ---------- кнопка «Покинуть встречу» ----------
   const LEAVE_R = 13;
-  function leaveSprite() {
+  const LEAVE_GLOW = '229,72,77';
+  // p.leaveColor ставят слушатели spawnPickup (утиная кнопка У13), сама кнопка работает как обычная.
+  function leaveSprite(color) {
     const K = pxK();
+    const col = color || LEAVE_RED;
     const key = K + '|' + themeStamp;
-    if (boss.leaveSprite && boss.leaveKey === key) return boss.leaveSprite;
+    const cached = boss.leaveSprites[col];
+    if (cached && cached.key === key) return cached.c;
     const S = 36;
-    const c = boss.leaveSprite || makeCanvas(1, 1);
+    const c = cached ? cached.c : makeCanvas(1, 1);
     c.width = Math.max(1, Math.ceil(S * K));
     c.height = Math.max(1, Math.ceil(S * K));
     const ctx = c.getContext('2d');
@@ -574,7 +641,7 @@
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     rr(ctx, -13, -7.5, 26, 17, 8.5);
     ctx.fill();
-    ctx.fillStyle = LEAVE_RED;
+    ctx.fillStyle = col;
     rr(ctx, -13, -9, 26, 17, 8.5);
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
@@ -592,26 +659,32 @@
     ctx.moveTo(6.3, -0.2);
     ctx.lineTo(6.8, 2.6);
     ctx.stroke();
-    boss.leaveSprite = c;
-    boss.leaveKey = key;
+    boss.leaveSprites[col] = { c, key };
     return c;
+  }
+  function rgbOf(hex) {
+    const m = /^#([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return LEAVE_GLOW;
+    const n = parseInt(m[1], 16);
+    return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
   }
 
   function drawLeave(ctx, p) {
     const bob = G.calm ? 0 : Math.sin(p.ph) * 2;
     const y = G.GROUND - p.alt + bob;
+    const col = typeof p.leaveColor === 'string' ? p.leaveColor : null;
     if (!G.calm) {
       const k = (G.state.idleT * 1.6 + p.seed) % 1;
       ctx.globalAlpha = 0.55 * (1 - k);
-      ctx.strokeStyle = LEAVE_RED;
+      ctx.strokeStyle = col || LEAVE_RED;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(p.x, y, LEAVE_R + 2 + k * 9, 0, TAU);
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    ctx.drawImage(leaveSprite(), p.x - 18, y - 18, 36, 36);
-    if (G.look && typeof G.look.glow === 'function') G.look.glow(p.x, p.alt, 26, '229,72,77', 0.5);
+    ctx.drawImage(leaveSprite(col), p.x - 18, y - 18, 36, 36);
+    if (G.look && typeof G.look.glow === 'function') G.look.glow(p.x, p.alt, 26, col ? (p.leaveGlow || (p.leaveGlow = rgbOf(col))) : LEAVE_GLOW, 0.5);
   }
 
   G.registerPickup({
@@ -654,7 +727,7 @@
   G.on('die', (info) => {
     if (!active()) return;
     if (info && !info.causeTag) {
-      info.cause = 'Застрял на all-hands. Навсегда.';
+      info.cause = ktsText('cause', 'Застрял на all-hands. Навсегда.');
       info.causeTag = BOSS_ID;
     }
     boss.phase = 'gone';
