@@ -17,6 +17,7 @@
   const OVER_CHIPS = 2;
   const MISSING_LIST_MAX = 3;
   const SILHOUETTE_ALPHA = 0.3;
+  const LONG_SKIN_NAME = 14;
 
   const COUNTERS = ['runs', 'totalMin', 'playSec', 'carrots', 'best', 'bestClock', 'bestCarrots', 'bestNear', 'bestBonus', 'bestNoDouble', 'jumps', 'doubleJumps', 'nearMisses', 'smashed', 'passed', 'bonusMin', 'stomps', 'escapes', 'bestFevers', 'bossWins'];
   const MAPS = ['passedByType', 'pickups', 'powerups', 'deaths', 'puMap', 'plain', 'ach', 'skins', 'notes'];
@@ -108,8 +109,11 @@
   ];
   const ACH_BY_ID = Object.create(null);
   for (const a of ACH) ACH_BY_ID[a.id] = a;
-  let achOn = ACH.filter((a) => !a.needs);
-  const achLive = (a) => achOn.includes(a);
+  // Внешние ачивки других модулей: состояние хранят они сами (done), meta только показывает и празднует.
+  const EXT_ACH = [];
+  const baseAch = () => ACH.filter((a) => hasNeed(a.needs)).concat(EXT_ACH);
+  let achOn = ACH.filter((a) => !a.needs).concat(EXT_ACH);
+  const isExtAch = (a) => typeof a.done === 'function';
 
   // ---------- скины ----------
   // grade — альтернативный путь: номер грейда спринта, с которого скин открывается сам
@@ -132,13 +136,20 @@
   ];
   const skinList = () => (Array.isArray(G.skins) && G.skins.length ? G.skins : FALLBACK_SKINS);
   const skinRule = (id) => SKIN_RULES[id] || null;
-  const isSkinOpen = (id) => !skinRule(id) || profile.skins[id] != null;
+  function isSkinOpen(id) {
+    const rule = skinRule(id);
+    if (!rule || profile.skins[id] != null) return true;
+    return typeof rule.isOpen === 'function' && !!rule.isOpen();
+  }
   const findSkin = (id) => skinList().find((s) => s.id === id) || null;
-  const isAchDone = (id) => profile.ach[id] != null;
+  const achDone = (a) => profile.ach[a.id] != null || (isExtAch(a) && !!a.done());
+  const isAchDone = (id) => (ACH_BY_ID[id] ? achDone(ACH_BY_ID[id]) : profile.ach[id] != null);
+  // Легендарные скины — бонус сверх «Модного приговора».
+  const fashionSkins = () => skinList().filter((s) => !s.legendary);
 
-  function openSkinCount() {
+  function openSkinCount(list) {
     let n = 0;
-    for (const s of skinList()) if (isSkinOpen(s.id)) n++;
+    for (const s of list || skinList()) if (isSkinOpen(s.id)) n++;
     return n;
   }
 
@@ -206,7 +217,36 @@
   }
 
   function checkFashion(quiet) {
-    if (!isAchDone('fashion') && openSkinCount() >= skinList().length) unlockAch(ACH_BY_ID.fashion, quiet);
+    const list = fashionSkins();
+    if (!isAchDone('fashion') && openSkinCount(list) >= list.length) unlockAch(ACH_BY_ID.fashion, quiet);
+  }
+
+  // Внешний модуль сообщил, что открыл свою ачивку или скин: тост он показывает сам, meta отмечает новинку и шлёт событие.
+  function refreshAfterUnlock() {
+    if (G.state.mode === 'run') return;
+    renderPanel();
+    if (G.state.mode === 'over') renderOver();
+  }
+  function notifyUnlock(kind, id) {
+    if (kind === 'ach') {
+      const a = ACH_BY_ID[id];
+      if (!a || !isExtAch(a) || profile.ach[id] != null) return false;
+      profile.ach[id] = run.no;
+      dirty = true;
+      markFresh('ach', a);
+      G.emit('achievement', { id: a.id, name: a.name, desc: a.desc });
+    } else if (kind === 'skin') {
+      const s = findSkin(id);
+      if (!s || profile.skins[id] != null) return false;
+      profile.skins[id] = run.no;
+      dirty = true;
+      markFresh('skin', s);
+      G.emit('skinUnlock', { id: s.id, name: s.name });
+      checkFashion(false);
+    } else return false;
+    save();
+    refreshAfterUnlock();
+    return true;
   }
   function checkCollector(quiet) {
     if (isAchDone('collector')) return;
@@ -222,7 +262,7 @@
     const skins = skinList();
     for (let i = 0; i < skins.length; i++) {
       const s = skins[i], rule = SKIN_RULES[s.id];
-      if (rule && profile.skins[s.id] == null && skinRuleMet(rule, R)) unlockSkin(s, quiet);
+      if (rule && rule.get && profile.skins[s.id] == null && skinRuleMet(rule, R)) unlockSkin(s, quiet);
     }
     for (let i = 0; i < achOn.length; i++) {
       const a = achOn[i];
@@ -295,10 +335,20 @@
       const p = powerupProgress();
       return { v: p.have, goal: p.total, unit: '', missing: p.missing };
     }
-    if (a.special === 'skins') return { v: openSkinCount(), goal: skinList().length, unit: '' };
+    if (a.special === 'skins') {
+      const list = fashionSkins();
+      return { v: openSkinCount(list), goal: list.length, unit: '' };
+    }
     if (a.get) return { v: a.get(null), goal: a.goal, unit: a.unit || '' };
+    if (typeof a.progress === 'function') return extProgress(a.progress());
     return null;
   }
+  // Прогресс внешней ачивки или скина: {v, goal, text?}; text заменяет «v / goal».
+  function extProgress(p) {
+    if (!p || !(num(p.goal) > 0)) return null;
+    return { v: num(p.v), goal: num(p.goal), unit: '', text: typeof p.text === 'string' ? p.text : '' };
+  }
+  const progressLine = (p) => p.text || progressText(p.unit, p.v, p.goal);
 
   // ---------- DOM ----------
   const ICONS = {
@@ -320,8 +370,14 @@
     leave: '<path d="M3.5 13.2c4.9-4.3 12.1-4.3 17 0l-1.6 3.1-3.6-1.2V12c-2.8-.9-5.8-.9-8.6 0v3.1l-3.6 1.2z" fill="currentColor"/>',
     lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
     question: '<path d="M9 9a3 3 0 1 1 4.5 2.6c-.9.5-1.5 1.2-1.5 2.2V15"/><path d="M12 19h.01"/>',
+    star: '<path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
+    cake: '<path d="M4 20.5h16M5 20.5v-7a1.5 1.5 0 0 1 1.5-1.5h11a1.5 1.5 0 0 1 1.5 1.5v7"/><path d="M5 15.5c1.2 1.2 2.3 1.2 3.5 0s2.3-1.2 3.5 0 2.3 1.2 3.5 0 2.3-1.2 3.5 0"/><path d="M9 12V9M15 12V9"/><path d="M9 5.5v.5M15 5.5v.5"/>',
+    duck: '<path d="M4 13.5h9.5a3.5 3.5 0 0 0 1.2-6.8A3.3 3.3 0 0 0 9 8.5v2"/><path d="M4 13.5c0 4 3 6 7.5 6 5.2 0 8.5-2.6 8.5-7.5l-3.5 1.5"/><path d="M14.5 7.5 18 6.8"/><path d="M12.2 7.6h.01"/>',
+    frog: '<path d="M4 15c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5c0 2.6-3.6 4.5-8 4.5s-8-1.9-8-4.5z"/><circle cx="8.5" cy="7.5" r="2.2"/><circle cx="15.5" cy="7.5" r="2.2"/><path d="M9 15.5c1.8 1.2 4.2 1.2 6 0"/>',
+    mountain: '<path d="M2.5 20 9.5 7l4 7 2-3.5 6 9.5z"/><path d="m7.6 10.5 1.9 1.6 1.7-1.6"/>',
+    crown: '<path d="M4 17.5 3 7.5l5 4 4-6.5 4 6.5 5-4-1 10z"/><path d="M4.5 20.5h15"/>',
   };
-  const svg = (name) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (ICONS[name] || '') + '</svg>';
+  const svg = (name) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + (ICONS[name] || ICONS.star) + '</svg>';
 
   function h(tag, cls, text) {
     const e = doc.createElement(tag);
@@ -406,8 +462,12 @@
   }
 
   // ---------- панель ----------
-  const view = { built: false, themeStamp: 0, tab: 'skins', stats: {}, tabs: {}, panes: {}, skinGrid: null, revealed: false, skinCards: [], achCards: [], achBar: null, achLabel: null, noteCards: [], noteBar: null, noteLabel: null };
-  const TAB_ORDER = ['skins', 'ach', 'notes'];
+  const view = { built: false, themeStamp: 0, tab: 'skins', stats: {}, tabs: {}, panes: {}, skinGrid: null, revealed: false, skinCards: [], achCards: [], achGrid: null, achBar: null, achLabel: null, noteCards: [], noteBar: null, noteLabel: null, collCards: [], collGrid: null };
+  let TAB_ORDER = ['skins', 'ach', 'notes'];
+
+  // Коллекции внешних модулей: view() → {title, value, sub, k, num, icon, chips: [{label, on, title}]} или null (скрыть).
+  const COLLECTIONS = [];
+  let collFresh = 0;
 
   function statTile(parent, key, label) {
     const box = h('div', 'mp-stat');
@@ -422,6 +482,7 @@
     const btn = h('button', 'mp-skin');
     btn.type = 'button';
     btn.dataset.skin = s.id;
+    if (s.legendary) btn.classList.add('is-legendary');
     const thumb = h('span', 'mp-thumb');
     const cv = makeThumbCanvas(THUMB_CSS);
     const lock = h('span', 'mp-lock');
@@ -429,7 +490,8 @@
     const tag = h('span', 'mp-tag', 'на диване');
     const newTag = h('span', 'mp-new', 'новый');
     thumb.append(cv, lock, tag, newTag);
-    const name = h('span', 'mp-skin-name', s.name);
+    if (s.tag) thumb.append(h('span', 'mp-legend', s.tag));
+    const name = h('span', 'mp-skin-name' + (s.name.length > LONG_SKIN_NAME ? ' is-long' : ''), s.name);
     const note = h('span', 'mp-skin-note');
     const meter = h('span', 'mp-meter');
     const bar = h('span', 'mp-bar');
@@ -512,7 +574,15 @@
       view.panes[k].hidden = !on;
     }
     if (focus && view.tabs[id].btn.focus) view.tabs[id].btn.focus();
+    revealTab(view.tabs[id].btn);
     if (id === 'skins' && !view.revealed) revealChosenSkin();
+  }
+
+  function revealTab(btn) {
+    const bar = btn.parentNode;
+    if (!bar || !(bar.scrollWidth > bar.clientWidth)) return;
+    const left = btn.offsetLeft - (bar.clientWidth - btn.offsetWidth) / 2;
+    if (Number.isFinite(left)) bar.scrollLeft = Math.max(0, left);
   }
 
   function build() {
@@ -534,7 +604,10 @@
     const tabs = h('div', 'mp-tabs');
     tabs.setAttribute('role', 'tablist');
     tabs.setAttribute('aria-label', 'Разделы прогресса');
-    tabs.append(buildTab('skins', 'Скины'), buildTab('ach', 'Ачивки'), buildTab('notes', 'Объяснительные'));
+    TAB_ORDER = COLLECTIONS.length ? ['skins', 'ach', 'coll', 'notes'] : ['skins', 'ach', 'notes'];
+    tabs.append(buildTab('skins', 'Скины'), buildTab('ach', 'Ачивки'));
+    if (COLLECTIONS.length) tabs.append(buildTab('coll', 'Коллекции'));
+    tabs.append(buildTab('notes', 'Объяснительные'));
     tabs.addEventListener('keydown', (e) => {
       if (e.code !== 'ArrowLeft' && e.code !== 'ArrowRight') return;
       e.preventDefault();
@@ -559,6 +632,17 @@
     achGrid.setAttribute('role', 'list');
     for (const a of achOn) achGrid.append(buildAchCard(a));
     achPane.append(prog, achGrid);
+    view.achGrid = achGrid;
+
+    let collPane = null;
+    if (COLLECTIONS.length) {
+      collPane = buildPane('coll');
+      const collGrid = h('div', 'mp-colls');
+      collGrid.setAttribute('role', 'list');
+      for (const c of COLLECTIONS) collGrid.append(buildCollCard(c));
+      collPane.append(collGrid);
+      view.collGrid = collGrid;
+    }
 
     const notesPane = buildPane('notes');
     const nprog = h('div', 'mp-total');
@@ -572,7 +656,9 @@
     noteCatalog().forEach((n, i) => noteGrid.append(buildNoteCard(n, i)));
     notesPane.append(nprog, noteGrid);
 
-    panel.append(top, tabs, skinsPane, achPane, notesPane);
+    panel.append(top, tabs, skinsPane, achPane);
+    if (collPane) panel.append(collPane);
+    panel.append(notesPane);
     view.built = true;
     const savedTab = G.store.get(TAB_KEY, 'skins');
     setTab(view.panes[savedTab] ? savedTab : 'skins');
@@ -615,15 +701,17 @@
       c.lock.hidden = unlocked;
       c.tag.hidden = !chosen;
       c.newTag.hidden = !isFresh || chosen;
-      c.meter.hidden = unlocked || !rule;
+      const p = unlocked || !rule ? null : rule.get ? { v: rule.get(null), goal: rule.goal, unit: rule.unit } : typeof rule.progress === 'function' ? extProgress(rule.progress()) : null;
+      c.meter.hidden = !p;
       if (unlocked || !rule) {
         setText(c.note, c.s.desc || '');
         c.btn.setAttribute('aria-label', c.s.name + (chosen ? ' — на диване' : ' — надеть'));
       } else {
-        const v = rule.get(null);
         setText(c.note, rule.cond);
-        setText(c.numEl, progressText(rule.unit, v, rule.goal));
-        setBar(c.fill, v / rule.goal);
+        if (p) {
+          setText(c.numEl, progressLine(p));
+          setBar(c.fill, p.v / p.goal);
+        }
         c.btn.setAttribute('aria-label', c.s.name + ' — закрыт: ' + rule.cond);
       }
       const key = view.themeStamp + ':' + unlocked;
@@ -661,11 +749,11 @@
       if (ok) setText(c.when, at ? 'получена в забеге №' + at : 'получена');
       const p = ok || a.event ? null : achProgress(a);
       setText(c.name, hiddenSecret ? '???' : a.name);
-      setText(c.desc, hiddenSecret ? a.hint : a.desc + missingNote(p));
+      setText(c.desc, hiddenSecret ? a.hint || '' : a.desc + missingNote(p));
       c.meter.hidden = !p;
       if (p) {
         if (p.goal > 0) {
-          setText(c.numEl, progressText(p.unit, p.v, p.goal));
+          setText(c.numEl, progressLine(p));
           setBar(c.fill, p.v / p.goal);
         } else {
           setText(c.numEl, 'пауэр-апов пока не завезли');
@@ -687,7 +775,94 @@
     renderStats();
     renderSkins();
     renderAch();
+    renderColls();
     renderNotes();
+  }
+
+  // ---------- коллекции ----------
+  function buildCollCard(col) {
+    const box = h('div', 'mp-coll');
+    box.setAttribute('role', 'listitem');
+    const badge = h('span', 'mp-badge');
+    badge.setAttribute('aria-hidden', 'true');
+    const body = h('div', 'mp-coll-body');
+    const head = h('div', 'mp-coll-head');
+    const title = h('span', 'mp-coll-title');
+    const value = h('b', 'mp-coll-val');
+    head.append(title, value);
+    const meter = h('div', 'mp-meter');
+    const bar = h('span', 'mp-bar');
+    const fill = h('i');
+    bar.append(fill);
+    const numEl = h('span', 'mp-num');
+    meter.append(bar, numEl);
+    const sub = h('div', 'mp-coll-sub');
+    const chips = h('div', 'mp-chips');
+    body.append(head, meter, sub, chips);
+    box.append(badge, body);
+    view.collCards.push({ col, box, badge, title, value, meter, fill, numEl, sub, chips, icon: '', chipKey: '' });
+    return box;
+  }
+
+  function collView(col) {
+    try {
+      return col.view() || null;
+    } catch (e) {
+      G.report('meta: коллекция ' + col.id, e);
+      return null;
+    }
+  }
+
+  function renderChips(c, list) {
+    const key = list.map((x) => (x.on ? '1' : '0') + x.label).join('|');
+    if (c.chipKey === key) return;
+    c.chipKey = key;
+    replaceKids(c.chips, list.map((x) => {
+      const chip = h('span', 'mp-chip' + (x.on ? ' is-on' : ''), x.on ? x.label : '?');
+      if (x.on && x.title) chip.title = x.title;
+      return chip;
+    }));
+  }
+
+  function renderColls() {
+    if (!view.collGrid) return;
+    let shown = 0;
+    for (const c of view.collCards) {
+      const v = collView(c.col);
+      c.box.hidden = !v;
+      if (!v) continue;
+      shown++;
+      const icon = v.icon || 'star';
+      if (c.icon !== icon) {
+        c.icon = icon;
+        c.badge.innerHTML = svg(icon);
+      }
+      c.box.classList.toggle('is-done', !!v.done);
+      setText(c.title, v.title || '');
+      setText(c.value, v.value == null ? '' : String(v.value));
+      const hasBar = typeof v.k === 'number' && Number.isFinite(v.k);
+      c.meter.hidden = !hasBar;
+      if (hasBar) {
+        setBar(c.fill, v.k);
+        setText(c.numEl, v.num || '');
+      }
+      setText(c.sub, v.sub || '');
+      c.sub.hidden = !v.sub;
+      const list = Array.isArray(v.chips) ? v.chips : [];
+      c.chips.hidden = !list.length;
+      if (list.length) renderChips(c, list);
+    }
+    const t = view.tabs.coll;
+    if (t) {
+      t.count.hidden = !collFresh;
+      if (collFresh) setText(t.count, '+' + collFresh);
+      t.btn.classList.toggle('has-new', collFresh > 0);
+      t.btn.hidden = !shown;
+    }
+  }
+  function touchCollection() {
+    collFresh++;
+    if (G.state.mode !== 'run') renderPanel();
   }
 
   // ---------- папка объяснительных ----------
@@ -790,13 +965,16 @@
     [45, 'Архитектор дивана'], [65, 'CTO ебланства'], [90, 'Ебланист-евангелист'],
   ];
   const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+  const gradeNames = Object.create(null);
+  let gradeCheer = null;
+  const gradeName = (i) => gradeNames[i] || GRADES[i][1];
 
   function gradeOf(stars) {
     const s = num(stars);
     let i = 0;
     while (i + 1 < GRADES.length && s >= GRADES[i + 1][0]) i++;
-    if (i + 1 < GRADES.length) return { idx: i, name: GRADES[i][1], stars: s, from: GRADES[i][0], next: GRADES[i + 1][0], nextName: GRADES[i + 1][1] };
-    const top = GRADES[i][0], base = GRADES[i][1];
+    if (i + 1 < GRADES.length) return { idx: i, name: gradeName(i), stars: s, from: GRADES[i][0], next: GRADES[i + 1][0], nextName: gradeName(i + 1) };
+    const top = GRADES[i][0], base = gradeName(i);
     const extra = Math.floor((s - top) / GRADE_STEP);
     const roman = (n) => ROMAN[n] || String(n);
     return {
@@ -1116,7 +1294,15 @@
     sprint.grade = g.idx;
     saveSprint();
     if (report) report.newGrade = g;
-    G.emit('grade', { grade: g.idx, name: g.name, stars: g.stars });
+    let cheer = '';
+    if (gradeCheer) {
+      try {
+        cheer = String(gradeCheer(g) || '');
+      } catch (e) {
+        G.report('meta: gradeCheer', e);
+      }
+    }
+    G.emit('grade', { grade: g.idx, name: g.name, stars: g.stars, cheer });
   }
 
   function skipTicket(i) {
@@ -1231,20 +1417,25 @@
 
   function nearestGoal() {
     let bestK = -1, out = null;
-    const consider = (name, unit, v, goal) => {
+    const consider = (name, unit, v, goal, text) => {
       if (!(goal > 0)) return;
       const k = v / goal;
       if (k < 1 && k > bestK) {
         bestK = k;
-        out = { name, text: progressText(unit, v, goal) };
+        out = { name, text: text || progressText(unit, v, goal) };
       }
     };
     for (const s of skinList()) {
       const rule = skinRule(s.id);
-      if (rule && !isSkinOpen(s.id)) consider('Скин «' + s.name + '»', rule.unit, rule.get(null), rule.goal);
+      if (rule && rule.get && !isSkinOpen(s.id)) consider('Скин «' + s.name + '»', rule.unit, rule.get(null), rule.goal);
     }
     for (const a of achOn) {
-      if (a.get && !isAchDone(a.id)) consider(a.name, a.unit, a.get(null), a.goal);
+      if (achDone(a)) continue;
+      if (a.get) consider(a.name, a.unit, a.get(null), a.goal);
+      else if (isExtAch(a) && !a.secret) {
+        const p = achProgress(a);
+        if (p) consider(a.name, '', p.v, p.goal, p.text);
+      }
     }
     return out;
   }
@@ -1394,6 +1585,7 @@
     run.bossWin = 0;
     run.caughtT = -99;
     freshNote = null;
+    collFresh = 0;
     sampleRun();
     sprintStart();
     fresh.length = 0;
@@ -1498,9 +1690,13 @@
     if (view.built) renderSkins();
   });
 
+  const achSummary = () => achOn.map((a) => ({ id: a.id, name: a.name, desc: a.desc, secret: !!a.secret }));
+
+  let booted = false;
   G.on('boot', () => {
-    achOn = ACH.filter((a) => hasNeed(a.needs));
-    G.meta.achievements = achOn.map((a) => ({ id: a.id, name: a.name, desc: a.desc, secret: !!a.secret }));
+    booted = true;
+    achOn = baseAch();
+    G.meta.achievements = achSummary();
     sprintBoot();
     checkGoals(null, true);
     checkCollector(true);
@@ -1513,15 +1709,56 @@
 
   restoreSkin();
 
+  // ---------- точки расширения для других модулей ----------
+  const str = (v) => (typeof v === 'string' ? v : '');
+  // def: {id, name, desc, icon?, glyph?, secret?, hint?, done(): bool, progress?(): {v, goal, text?}}
+  function addAchievement(def) {
+    if (!isMap(def) || typeof def.id !== 'string' || !def.id || ACH_BY_ID[def.id] || typeof def.done !== 'function') return false;
+    if (typeof def.name !== 'string' || !def.name) return false;
+    const a = {
+      id: def.id, name: def.name, desc: str(def.desc), icon: str(def.icon) || 'star', glyph: str(def.glyph),
+      secret: !!def.secret, hint: str(def.hint), done: def.done, progress: typeof def.progress === 'function' ? def.progress : null,
+    };
+    EXT_ACH.push(a);
+    ACH_BY_ID[a.id] = a;
+    if (booted) {
+      achOn.push(a);
+      G.meta.achievements = achSummary();
+      if (view.achGrid) {
+        view.achGrid.append(buildAchCard(a));
+        renderAch();
+      }
+    }
+    return true;
+  }
+  // rule: {cond, isOpen(): bool, progress?(): {v, goal, text?}}; встроенные правила не переопределяются.
+  function addSkinRule(id, rule) {
+    if (typeof id !== 'string' || SKIN_RULES[id] || !isMap(rule) || typeof rule.isOpen !== 'function') return false;
+    SKIN_RULES[id] = { cond: str(rule.cond), isOpen: rule.isOpen, progress: typeof rule.progress === 'function' ? rule.progress : null };
+    return true;
+  }
+  // col: {id, order?, view()}; регистрировать до boot, вкладка строится один раз.
+  function addCollection(col) {
+    if (booted || !isMap(col) || typeof col.view !== 'function' || COLLECTIONS.some((c) => c.id === col.id)) return false;
+    COLLECTIONS.push({ id: String(col.id), order: Number(col.order) || 0, view: col.view });
+    COLLECTIONS.sort((a, b) => a.order - b.order);
+    return true;
+  }
+
   G.meta = {
     life: profile,
     profile,
-    achievements: achOn.map((a) => ({ id: a.id, name: a.name, desc: a.desc, secret: !!a.secret })),
+    achievements: achSummary(),
     isUnlocked: isAchDone,
     isSkinUnlocked: isSkinOpen,
     skinCondition: (id) => (skinRule(id) ? skinRule(id).cond : ''),
     selectSkin,
     render: renderPanel,
+    addAchievement,
+    addSkinRule,
+    addCollection,
+    notifyUnlock,
+    touchCollection,
   };
 
   G.sprint = {
@@ -1532,5 +1769,13 @@
     lastRun: () => report,
     canSkip,
     skip: skipTicket,
+    setGradeName: (idx, name) => {
+      if (!(idx >= 0 && idx < GRADES.length) || typeof name !== 'string' || !name) return false;
+      gradeNames[idx] = name;
+      return true;
+    },
+    setGradeCheer: (fn) => {
+      gradeCheer = typeof fn === 'function' ? fn : null;
+    },
   };
 })();
