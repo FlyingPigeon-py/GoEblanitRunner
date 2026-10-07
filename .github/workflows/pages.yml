@@ -20,7 +20,7 @@ jobs:
           node-version: 22
 
       - name: Syntax check
-        run: for f in js/*.js test/*.js build.js; do node --check "$f"; done
+        run: for f in js/*.js js/kts/*.js js/kts/data/*.js test/*.js build.js; do node --check "$f"; done
 
       - name: Smoke test
         run: node test/smoke.js

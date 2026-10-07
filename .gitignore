@@ -3,3 +3,4 @@ node_modules/
 dist/
 _site/
 v1-reference.html
+.claude/
