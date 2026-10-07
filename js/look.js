@@ -306,10 +306,30 @@
       if (e.tw === 0 && e.w < 0.003) vmix.splice(i, 1);
     }
     post.gradeCss = `rgb(${Math.round(post.grade[0])},${Math.round(post.grade[1])},${Math.round(post.grade[2])})`;
+    const tk = snap ? 1 : 1 - Math.exp(-rdt / 0.25);
+    for (const [owner, e] of tints) {
+      e.cur += (e.a - e.cur) * tk;
+      if (e.a === 0 && e.cur < 0.003) tints.delete(owner);
+    }
     const night = clamp01(fin(sc.night, 0));
     post.vigA = Math.min(0.8, (dark ? 0.34 : 0.22) + night * 0.18 + sk * 0.2) * post.vigMult;
   }
 
+  const tintSprite = spriteCache(4, (key) => {
+    const c = newCanvas(128, 128);
+    const x = c.getContext('2d');
+    if (x) {
+      const g = x.createRadialGradient(64, 64, 0, 64, 64, 91);
+      g.addColorStop(0, `rgba(${key},0)`);
+      g.addColorStop(0.5, `rgba(${key},0)`);
+      g.addColorStop(0.72, `rgba(${key},0.32)`);
+      g.addColorStop(0.88, `rgba(${key},0.62)`);
+      g.addColorStop(1, `rgba(${key},0.9)`);
+      x.fillStyle = g;
+      x.fillRect(0, 0, 128, 128);
+    }
+    return c;
+  });
   const vigSprite = spriteCache(4, (key) => {
     const c = newCanvas(128, 128);
     const x = c.getContext('2d');
@@ -583,12 +603,35 @@
   }
   const lw = (wu, px) => Math.max(wu, px / (G.scale || 1));
 
+  // ---------- цветные края кадра от модулей: владелец → цвет и сила ----------
+  const tints = new Map();
+  function tint(owner, color, a) {
+    if (!owner) return false;
+    const e = tints.get(owner);
+    if (color == null || !(a > 0)) {
+      if (e) e.a = 0;
+      return true;
+    }
+    if (!e || e.color !== color) {
+      if (!parseColor(color, tmpRGB)) return false;
+      const key = rgbKey(tmpRGB[0] | 0, tmpRGB[1] | 0, tmpRGB[2] | 0);
+      if (e) {
+        e.color = color;
+        e.key = key;
+      } else {
+        tints.set(owner, { color, key, a: 0, cur: 0 });
+      }
+    }
+    tints.get(owner).a = Math.min(1, a);
+    return true;
+  }
+
   // ---------- G.look ----------
   const look = {
     post: true,
     a2, a2on: false, k: kCur, amb,
     lit: 0,
-    glow, at, rim, ramp, lw,
+    glow, at, rim, ramp, lw, tint,
     tier: () => gfx.tier,
     debug: { fse: 0, glows: 0, tierLog, perf },
     debugAt(clock) {
@@ -733,6 +776,12 @@
       if (a < 0.004) continue;
       ctx.globalAlpha = Math.min(1, a);
       ctx.drawImage(vigSprite(e.key), -2, -2, W + 4, H + 4);
+      fse++;
+    }
+    for (const e of tints.values()) {
+      if (e.cur < 0.004) continue;
+      ctx.globalAlpha = Math.min(1, e.cur);
+      ctx.drawImage(tintSprite(e.key), -2, -2, W + 4, H + 4);
       fse++;
     }
     if (tier === 2 && post.grain > 0.002) {
