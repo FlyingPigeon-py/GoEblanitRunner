@@ -2387,6 +2387,7 @@
     clock: 540, storm: false, amb: new Float32Array([1, 1, 1]), loc: locInfo, surface: 'fabric', outdoor: false,
     route: [], next: null, transition: null, panes, lights, emitters, sun: sunInfo, building: false, debug,
     goto: (id, variant) => gotoLoc(id, variant),
+    anchor: (id) => getAnchor(id),
   };
   G.scene = sceneInfo;
 
@@ -2790,9 +2791,11 @@
       }
     }
   }
+  const artOverride = (k) => (hasPoint('living.art') ? point('living.art', k, LV) : undefined);
   function drawArt(ctx, k, cx, L) {
     if (cx < -110 - M || cx > G.W + 110 + M) return null;
-    const id = lowerAt(k), sp = S.items[id];
+    const ov = artOverride(k);
+    const id = ov ? 'ext' : lowerAt(k), sp = ov || S.items[id];
     if (cx < L.x0 - 140 || cx > L.x1 + 140) return id;
     if (sp) blit(ctx, sp, cx, geo.lowC);
     if (geo.upSpace > 20) {
@@ -2812,10 +2815,66 @@
     }
     return id;
   }
+  const macro = { m: 0, LV: 0, left: 0, wcx: 0, lampX: 0, plantX: 0, ax: 0, bx: 0, bt: 0, sill: 0, gw: 0, lowC: 0, upC: 0, upSpace: 0, garY: 0, garland: false };
+  function fillMacro(m, left) {
+    const wcx = left + WIN_SLOT / 2, ls = lampSide(m);
+    macro.m = m;
+    macro.LV = LV;
+    macro.left = left;
+    macro.wcx = wcx;
+    macro.lampX = wcx + ls * PROP_DX;
+    macro.plantX = wcx - ls * PROP_DX;
+    macro.ax = left + WIN_SLOT + ART_SLOT / 2;
+    macro.bx = macro.ax + ART_SLOT;
+    macro.bt = geo.bt;
+    macro.sill = geo.bt - 13;
+    macro.gw = WIN_DEFS[winVariant(m)].gw;
+    macro.lowC = geo.lowC;
+    macro.upC = geo.upC;
+    macro.upSpace = geo.upSpace;
+    macro.garY = geo.garY;
+    macro.garland = geo.garland;
+    return macro;
+  }
+  // Место под внешний постер на стартовом кадре: слева от окна вместо растения, на высокой стене — над табличкой, иначе под ней.
+  const spot = { x: 0, y: 0, w: 0, h: 0, hidePlant: false };
+  function startSpot(wcx) {
+    const shift = G.state.dist * PAR_WALL, wcx0 = wcx + shift;
+    const room = wcx0 - (WIN_DEFS[0].gw / 2 + 6) - 38;
+    if (room >= 68) {
+      spot.w = 60;
+      spot.h = 76;
+      spot.x = Math.max(36, Math.min(wcx0 - PROP_DX, room - 30));
+      spot.y = geo.lowC + 4;
+      spot.hidePlant = true;
+    } else if (geo.upSpace >= 120) {
+      spot.w = 58;
+      spot.h = 70;
+      spot.x = wcx0 + WIN_SLOT / 2 + ART_SLOT / 2;
+      spot.y = geo.lowC - 36 - spot.h / 2;
+      spot.hidePlant = false;
+    } else if (room >= 40) {
+      spot.w = room - 6;
+      spot.h = (spot.w * 76) / 60;
+      spot.x = room - spot.w / 2;
+      spot.y = geo.lowC + 4;
+      spot.hidePlant = true;
+    } else if (geo.bt - 2 - (geo.lowC + 26) >= 44) {
+      const gap = geo.bt - 2 - (geo.lowC + 26);
+      spot.h = Math.min(60, gap + 4);
+      spot.w = (spot.h * 60) / 76;
+      spot.x = wcx0 + WIN_SLOT / 2 + ART_SLOT / 2 + 50;
+      spot.y = geo.lowC + 29 + spot.h / 2;
+      spot.hidePlant = false;
+    } else return null;
+    spot.x -= shift;
+    return spot;
+  }
   function livingWall(ctx, L) {
     if (!S.ready) return;
     livingVariant(L);
     const bt = geo.bt, W = G.W;
+    const ext = hasPoint('living.macro'), extSpot = LV === 0 && hasPoint('living.spot');
     for (let i = 0; i < vis.n; i++) {
       const m = vis.m[i], left = vis.x[i], wcx = left + WIN_SLOT / 2;
       const winIn = wcx > -200 && wcx < W + 200 && wcx > L.x0 - 300 && wcx < L.x1 + 300;
@@ -2823,17 +2882,24 @@
       const ax = left + WIN_SLOT + ART_SLOT / 2, bx = ax + ART_SLOT;
       const idA = drawArt(ctx, 2 * m, ax, L);
       const idB = drawArt(ctx, 2 * m + 1, bx, L);
+      let hidePlant = false;
+      if (extSpot && m === 0) {
+        const sp = startSpot(wcx);
+        if (sp && point('living.spot', ctx, sp.x, sp.y, sp.w, sp.h)) hidePlant = sp.hidePlant;
+      }
       if (winIn) {
         const ls = lampSide(m), pl = windowPlant(m);
         blit(ctx, S.lamp, wcx + ls * PROP_DX, bt);
-        if (pl) blit(ctx, pl === 1 ? S.monstera : S.snake, wcx - ls * PROP_DX, bt);
+        const px = wcx - ls * PROP_DX;
+        if (!hidePlant && pl && !point('living.plant', ctx, px, bt, m, LV)) blit(ctx, pl === 1 ? S.monstera : S.snake, px, bt);
       }
       const hp = hash(m, salt(13));
       const spA = idA && S.items[idA], spB = idB && S.items[idB];
       if (spA && spA.narrow && hp < 0.4) blit(ctx, S.snake, ax + 96, bt);
       else if (spB && spB.narrow && hp > 0.6) blit(ctx, S.snake, bx - 96, bt);
+      if (ext) point('living.macro', ctx, fillMacro(m, left), L);
     }
-    if (geo.garland) drawGarland(ctx, S.garland);
+    if (!point('living.garland', ctx, fillMacro(0, 0), F.wallSc) && geo.garland) drawGarland(ctx, S.garland);
   }
   function livingBack(ctx, L) {
     if (!S.ready) return;
@@ -2988,7 +3054,7 @@
       for (let s = 0; s < 2; s++) {
         const k = 2 * m + s, cx = left + WIN_SLOT + ART_SLOT / 2 + s * ART_SLOT;
         if (cx < -160 || cx > W + 160 || cx < L.x0 - 160 || cx > L.x1 + 160) continue;
-        const id = lowerAt(k);
+        const id = artOverride(k) ? 'ext' : lowerAt(k);
         if (id === 'neon' && F.lamp > 0.01) {
           let flick = 1;
           if (!reduceMotion) {
@@ -3017,11 +3083,17 @@
           pushLight('glow', cx - 38, geo.lowC + 6, 160, 120, 0, sk * 0.5, 150, 200, 255);
         }
       }
+      if (onScreen && hasPoint('living.glow')) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        point('living.glow', ctx, fillMacro(m, left), L);
+      }
     }
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     const dawnLit = LV === 2 ? clamp01((420 - L.clock) / 30) * (L.clock > 240 ? 1 : 0) : 0;
     const gl = Math.max(F.lamp, dawnLit);
+    if (point('living.garlandGlow', ctx, fillMacro(0, 0), F.wallSc, gl)) return;
     if (geo.garland && gl > 0.01) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = ea(gl);
@@ -3100,6 +3172,66 @@
     id: 'living', name: 'ГОСТИНАЯ', sign: 'ГОСТИНАЯ', title: 'давай ебланить', surface: 'fabric', outdoor: false,
     bg: livingBg, wall: livingWall, back: livingBack, ground: livingGround, emissive: livingEmissive, front: livingFront,
   };
+
+  // ---------- точки расширения: внешний декор и опорные точки ----------
+  const decorFns = Object.create(null);
+  const pointFns = Object.create(null);
+  function dropFn(list, fn, tag, e) {
+    const i = list.indexOf(fn);
+    if (i >= 0) list.splice(i, 1);
+    G.report(tag, e);
+  }
+  function runDecor(ctx, inst, name) {
+    const byLoc = decorFns[name], list = byLoc && byLoc[inst.id];
+    if (!list || !list.length) return;
+    for (let i = 0; i < list.length; i++) {
+      const fn = list[i];
+      ctx.save();
+      try {
+        fn(ctx, inst.L, kit);
+      } catch (e) {
+        dropFn(list, fn, 'decor ' + inst.id + '.' + name, e);
+        i--;
+      }
+      ctx.restore();
+    }
+  }
+  const hasPoint = (name) => !!(pointFns[name] && pointFns[name].length);
+  function point(name, a, b, c, d, e, f, g) {
+    const list = pointFns[name];
+    if (!list || !list.length) return undefined;
+    const isCtx = a && typeof a.save === 'function';
+    for (let i = 0; i < list.length; i++) {
+      const fn = list[i];
+      let r;
+      if (isCtx) a.save();
+      try {
+        r = fn(a, b, c, d, e, f, g);
+      } catch (err) {
+        dropFn(list, fn, 'scene point ' + name, err);
+        i--;
+      }
+      if (isCtx) a.restore();
+      if (r !== undefined && r !== null && r !== false) return r;
+    }
+    return undefined;
+  }
+  const anchors = Object.create(null);
+  let anchorTick = 0;
+  function setAnchor(id, x, y, w, h) {
+    if (typeof id !== 'string' || !Number.isFinite(x) || !Number.isFinite(y) || !(w > 0) || !(h > 0)) return;
+    const a = anchors[id] || (anchors[id] = { id, x: 0, alt: 0, w: 0, h: 0, tick: -1 });
+    a.x = x;
+    a.alt = G.GROUND - y;
+    a.w = w;
+    a.h = h;
+    a.tick = anchorTick;
+  }
+  function getAnchor(id) {
+    const a = anchors[id];
+    if (!a || a.tick !== anchorTick || a.x + a.w / 2 < 0 || a.x - a.w / 2 > G.W) return null;
+    return a;
+  }
 
   // ---------- каркас локаций ----------
   const locDefs = Object.create(null);
@@ -3329,16 +3461,17 @@
     const fn = inst.def[name];
     if (typeof fn !== 'function') {
       if (name === 'ground') fallbackLayer(ctx, name, L);
-      return;
+    } else {
+      const prevOwner = buildOwner;
+      buildOwner = inst.living ? null : inst;
+      try {
+        fn.call(inst.def, ctx, L);
+      } catch (e) {
+        breakInst(inst, e);
+      }
+      buildOwner = prevOwner;
     }
-    const prevOwner = buildOwner;
-    buildOwner = inst.living ? null : inst;
-    try {
-      fn.call(inst.def, ctx, L);
-    } catch (e) {
-      breakInst(inst, e);
-    }
-    buildOwner = prevOwner;
+    if (decorFns[name] && !inst.broken) runDecor(ctx, inst, name);
   }
   function runHook(ctx, name) {
     for (let i = 0; i < nReg; i++) {
@@ -4258,6 +4391,7 @@
   G.onRender(LAYER.BG, (ctx) => {
     ensure();
     prepFrame();
+    anchorTick++;
     panes.n = 0;
     lights.n = 0;
     emitters.n = 0;
@@ -4366,6 +4500,20 @@
     lampLight: lampLightKit,
     preComp: (rgb, a) => preComp(rgb, a),
     pushPane, pushLight, pushEmitter,
+    // Декор поверх слоя локации: fn(ctx, L, kit) после её хука layer ('bg'|'wall'|'back'|'ground'|'emissive'|'front').
+    decor(locId, layer, fn) {
+      if (typeof locId !== 'string' || typeof layer !== 'string' || typeof fn !== 'function') return;
+      const byLoc = decorFns[layer] || (decorFns[layer] = Object.create(null));
+      (byLoc[locId] || (byLoc[locId] = [])).push(fn);
+    },
+    // Именованные точки внутри локаций: первый непустой ответ подписчика заменяет поведение по умолчанию.
+    hook(name, fn) {
+      if (typeof name !== 'string' || typeof fn !== 'function') return;
+      (pointFns[name] || (pointFns[name] = [])).push(fn);
+    },
+    call: point,
+    has: hasPoint,
+    anchor: setAnchor,
     free(sp) {
       if (!sp) return;
       freeSprite(sp);
