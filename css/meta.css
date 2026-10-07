@@ -253,6 +253,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.mp-skin-name.is-long {
+  font-size: 13.5px;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 .mp-skin-note {
   padding: 0 4px;
   font-size: 12px;
@@ -354,6 +361,94 @@
 .mp-ach-desc { font-size: 13px; line-height: 1.35; color: var(--muted); }
 .mp-ach .mp-meter { margin-top: 4px; }
 .mp-ach-when { font-size: 11.5px; color: var(--muted); }
+
+/* ---------- легендарные скины ---------- */
+.mp-legend {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 9.5px;
+  line-height: 1;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--mp-medal);
+  color: var(--mp-medal-ink);
+}
+.mp-skin.is-legendary:not(.is-locked):not(.is-chosen) { border-color: var(--mp-medal); }
+.mp-skin.is-legendary.is-locked .mp-legend { background: var(--line); color: var(--muted); }
+
+/* ---------- коллекции ---------- */
+.mp-colls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 10px;
+}
+.mp-coll {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px 12px 12px;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--line);
+}
+.mp-coll > .mp-badge { color: var(--ink); border-style: solid; }
+.mp-coll.is-done > .mp-badge {
+  color: var(--mp-medal-ink);
+  border: 0;
+  background: radial-gradient(circle at 34% 28%, color-mix(in srgb, var(--mp-medal) 55%, #fff) 0 16%, var(--mp-medal) 52%, var(--mp-medal-lo) 100%);
+}
+.mp-coll-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
+.mp-coll-head { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 10px; flex-wrap: wrap; min-width: 0; }
+.mp-coll-title {
+  min-width: 0;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.15;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.mp-coll-val {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mp-coll-sub { font-size: 13px; line-height: 1.35; color: var(--muted); }
+.mp-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.mp-chip {
+  display: block;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  white-space: nowrap;
+}
+.mp-chip.is-on {
+  max-width: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--mp-medal-ink);
+  background: var(--mp-medal);
+  border: 1px solid var(--mp-medal-lo);
+}
 
 /* ---------- объяснительные ---------- */
 .mp-notes {
@@ -747,9 +842,12 @@
   .mp-skin { padding: 4px 4px 8px; border-radius: 14px; }
   .mp-thumb { border-radius: 10px; }
   .mp-skin-name { font-size: 14px; }
+  .mp-skin-name.is-long { font-size: 12.5px; }
   .mp-skin-note { font-size: 11px; }
   .mp-num { font-size: 11px; }
-  .mp-ach { padding: 10px; gap: 10px; }
+  .mp-ach, .mp-coll { padding: 10px; gap: 10px; }
+  .mp-coll-title { font-size: 14.5px; }
+  .mp-coll-val { font-size: 16px; }
   .mp-badge { width: 42px; height: 42px; font-size: 12.5px; }
   .mp-badge svg { width: 20px; height: 20px; }
   .mp-total .mp-bar { max-width: none; }

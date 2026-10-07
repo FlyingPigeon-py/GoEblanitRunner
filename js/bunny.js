@@ -16,6 +16,23 @@
     { id: 'shades', name: 'Кибер', desc: 'Пиксельные очки, deal with it' },
     { id: 'gold', name: 'Золотой', desc: 'Для тех, кто ебланил больше всех' },
   ];
+  const KTS = G.kts && G.kts.enabled ? G.kts : null;
+  const looks = Object.create(null);
+  if (KTS) {
+    for (const s of G.skins) {
+      const look = KTS.get('skinLook', s.id);
+      if (!look) continue;
+      looks[s.id] = look;
+      s.name = KTS.fmt(look.name) || s.name;
+      s.desc = KTS.fmt(look.desc) || s.desc;
+    }
+    for (const def of KTS.all('skins')) {
+      const name = KTS.fmt(def.name);
+      if (!name || G.skins.some((s) => s.id === def.id)) continue;
+      G.skins.push({ id: def.id, name, desc: KTS.fmt(def.desc) || '', legendary: !!def.legendary, tag: KTS.fmt(def.tag) || '' });
+      looks[def.id] = def;
+    }
+  }
   const SKIN_IDS = new Set(G.skins.map((s) => s.id));
 
   const sat = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -61,6 +78,8 @@
   const STAR = '#ffd23f', STAR_EDGE = '#a86c00';
   const SPARK = '#fffbe8';
   const FEVER_PINK = '#ff7ad9', SPIRAL_WHITE = '#fffdf7';
+  const KTS_GREEN = [47, 174, 95];
+  const DUCK_YELLOW = '#ffd23f', DUCK_HI = '#fff0a6', DUCK_LO = '#e3a414', DUCK_BEAK = '#ff9a1f', DUCK_EYE = '#1d1510';
 
   // ---------- геометрия: строится один раз, в локальных единицах (ступни в 0,0, морда вправо) ----------
   function seeded(seed) {
@@ -331,7 +350,49 @@
       if (i) g.spiral.lineTo(cos(a) * r, sin(a) * r);
       else g.spiral.moveTo(0, 0);
     }
+    if (KTS) buildKtsGeo(g);
     return g;
+  }
+
+  const RING_X = -1.5, RING_Y = -13, RING_RX = 28.5, RING_RY = 6.5, RING_W = 6.5;
+  function buildKtsGeo(g) {
+    const NP = () => new Path2D();
+    g.ktsLogo = NP();
+    g.ktsLogo.moveTo(-13.4, -25); g.ktsLogo.lineTo(-13.4, -19.4);
+    g.ktsLogo.moveTo(-10.7, -25); g.ktsLogo.lineTo(-13.2, -22.2); g.ktsLogo.lineTo(-10.7, -19.4);
+    g.ktsLogo.moveTo(-9.6, -25); g.ktsLogo.lineTo(-6, -25);
+    g.ktsLogo.moveTo(-7.8, -25); g.ktsLogo.lineTo(-7.8, -19.4);
+    g.ktsLogo.moveTo(-2.3, -24.5);
+    g.ktsLogo.bezierCurveTo(-3, -25.4, -5, -25.3, -5, -23.8);
+    g.ktsLogo.bezierCurveTo(-5, -22.3, -2.3, -22.6, -2.3, -21);
+    g.ktsLogo.bezierCurveTo(-2.3, -19.3, -4.6, -19.1, -5.3, -20.1);
+
+    g.briefs = NP();
+    g.briefs.moveTo(-36, -25.5);
+    g.briefs.quadraticCurveTo(-8, -21, 23, -6.5);
+    g.briefs.lineTo(23, 4);
+    g.briefs.lineTo(-36, 4);
+    g.briefs.closePath();
+    g.briefs.ellipse(-9, -3.5, 12.5, 8.5, 0, 0, TAU);
+    g.waist = NP();
+    g.waist.moveTo(-36, -25.5);
+    g.waist.quadraticCurveTo(-8, -21, 23, -6.5);
+    g.legHem = NP();
+    g.legHem.ellipse(-9, -3.5, 12.5, 8.5, 0, PI, TAU);
+
+    g.ring = NP();
+    g.ring.ellipse(RING_X, RING_Y, RING_RX, RING_RY, 0, 0, TAU);
+    g.ringFront = NP();
+    g.ringFront.ellipse(RING_X, RING_Y, RING_RX, RING_RY, 0, 0, PI);
+    g.duckTail = NP();
+    g.duckTail.moveTo(-30.5, -15.5);
+    g.duckTail.lineTo(-35.5, -20);
+    g.duckTail.lineTo(-28.5, -18);
+    g.duckTail.closePath();
+    g.duckHead = NP();
+    g.duckHead.arc(29.5, -18.2, 4.6, 0, TAU);
+    g.beak = NP();
+    g.beak.ellipse(34.4, -17.6, 2.8, 1.6, 0.1, 0, TAU);
   }
   const geo = buildGeo();
 
@@ -432,12 +493,25 @@
       accent: C.accent || '#d9482f',
     };
     if (id === 'hoodie') {
-      const fab = dark ? [86, 101, 138] : [74, 88, 122];
-      const fabHi = mix(fab, WHITE, 0.24), fabLo = mix(fab, [0, 0, 0], 0.3);
+      const look = looks.hoodie;
+      const black = !!look && look.fabric === 'black';
+      const fab = black ? (dark ? [64, 66, 73] : [40, 42, 47]) : dark ? [86, 101, 138] : [74, 88, 122];
+      const fabHi = mix(fab, WHITE, black ? 0.2 : 0.24), fabLo = mix(fab, [0, 0, 0], 0.3);
       pal.fabric = radial(gc, 5, -37, 2, 3, -30, 38, [0, rgba(fabHi), 0.4, rgba(fab), 1, rgba(fabLo)]);
       pal.hoodFill = radial(gc, 12, -42, 1, 9, -32, 18, [0, rgba(fabHi), 0.45, rgba(fab), 1, rgba(fabLo)]);
       pal.fabricHi = rgba(fabHi);
       pal.fabricLo = rgba(fabLo);
+      pal.logo = black && look.logo === 'kts' && geo.ktsLogo ? rgba(col(look.logoColor, KTS_GREEN)) : null;
+    }
+    if (id === 'trusy') {
+      const g = col(looks.trusy && looks.trusy.color, KTS_GREEN);
+      pal.briefs = linear(gc, 0, -26, 0, 2, [0, rgba(mix(g, WHITE, 0.2)), 0.55, rgba(g), 1, rgba(mix(g, [0, 0, 0], 0.22))]);
+      pal.briefsLo = rgba(mix(g, [0, 0, 0], 0.42));
+      pal.briefsHi = rgba(mix(g, WHITE, 0.6));
+    }
+    if (id === 'duck') {
+      pal.ring = linear(gc, 0, RING_Y - RING_RY - RING_W, 0, RING_Y + RING_RY + RING_W, [0, DUCK_HI, 0.45, DUCK_YELLOW, 1, DUCK_LO]);
+      pal.duckHead = radial(gc, 28, -20.5, 0.5, 29.5, -18.2, 5.2, [0, DUCK_HI, 0.5, DUCK_YELLOW, 1, DUCK_LO]);
     }
     if (id === 'gold') {
       pal.glint = linear(gc, -7, 0, 7, 0, [0, 'rgba(255,255,240,0)', 0.5, 'rgba(255,253,235,0.85)', 1, 'rgba(255,255,240,0)']);
@@ -1319,6 +1393,62 @@
     ctx.fill(geo.cupHi);
   }
 
+  function drawBriefs(ctx, pal) {
+    ctx.save();
+    ctx.clip(geo.body);
+    ctx.fillStyle = pal.briefs;
+    ctx.fill(geo.briefs, 'evenodd');
+    ctx.strokeStyle = pal.briefsLo;
+    ctx.lineWidth = 1.3;
+    ctx.stroke(geo.legHem);
+    ctx.lineWidth = 3.2;
+    ctx.stroke(geo.waist);
+    ctx.translate(0, -0.5);
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = pal.briefsHi;
+    ctx.lineWidth = 0.8;
+    ctx.stroke(geo.waist);
+    ctx.restore();
+  }
+
+  // Круг сначала целиком за телом, потом передняя половина поверх: стык попадает за силуэт и не виден.
+  function drawRing(ctx, path, pal, out, front) {
+    ctx.save();
+    if (front) ctx.lineCap = 'butt';
+    else {
+      ctx.lineWidth = out * 0.8;
+      ctx.strokeStyle = pal.outline;
+      ctx.fillStyle = DUCK_YELLOW;
+      ctx.fill(geo.duckTail);
+      ctx.stroke(geo.duckTail);
+    }
+    ctx.strokeStyle = pal.outline;
+    ctx.lineWidth = RING_W + out * 2;
+    ctx.stroke(path);
+    ctx.strokeStyle = pal.ring;
+    ctx.lineWidth = RING_W;
+    ctx.stroke(path);
+    ctx.translate(0, -1.9);
+    ctx.globalAlpha = 0.75;
+    ctx.strokeStyle = DUCK_HI;
+    ctx.lineWidth = 1.3;
+    ctx.stroke(path);
+    ctx.restore();
+  }
+
+  function drawDuckHead(ctx, pal, out) {
+    shape(ctx, geo.duckHead, pal.duckHead, pal, out);
+    ctx.lineWidth = out * 0.8;
+    ctx.strokeStyle = pal.outline;
+    ctx.stroke(geo.beak);
+    ctx.fillStyle = DUCK_BEAK;
+    ctx.fill(geo.beak);
+    ctx.fillStyle = DUCK_EYE;
+    ellipse(ctx, 30.7, -19.6, 0.95, 1.05);
+    ctx.fillStyle = '#ffffff';
+    ellipse(ctx, 31, -20, 0.35, 0.35);
+  }
+
   function drawStars(ctx, p) {
     for (let i = 0; i < 3; i++) {
       const a = p.t * 3.4 + (i * TAU) / 3;
@@ -1379,6 +1509,7 @@
 
     limb(ctx, geo.foot, -15.5 + p.hind2Dx, -2.6 + p.hind2Dy, p.hind2Rot, pal.far, pal, out);
     limb(ctx, geo.paw, 16 + p.paw2Dx, -4.8 + p.paw2Dy, 0, pal.far, pal, out);
+    if (pal.ring) drawRing(ctx, geo.ring, pal, out, false);
 
     const body = hoodie ? geo.bodySmooth : geo.body;
     ctx.strokeStyle = pal.outline;
@@ -1396,9 +1527,10 @@
       ctx.lineWidth = 1.2;
       ctx.stroke(geo.pocket);
       ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = pal.logo || pal.fabricHi;
+      ctx.lineWidth = pal.logo ? 1.2 : 1.1;
+      ctx.stroke(pal.logo ? geo.ktsLogo : geo.logo);
       ctx.strokeStyle = pal.fabricHi;
-      ctx.lineWidth = 1.1;
-      ctx.stroke(geo.logo);
       ctx.globalAlpha = 0.5;
       ctx.lineWidth = 1.4;
       ctx.stroke(geo.bodyRim);
@@ -1415,6 +1547,7 @@
       ctx.stroke(geo.bodyRim);
       ctx.globalAlpha = 1;
       if (id === 'gold') glint(ctx, geo.body, p, pal);
+      else if (pal.briefs) drawBriefs(ctx, pal);
     }
 
     ctx.save();
@@ -1436,6 +1569,10 @@
     limb(ctx, geo.paw, 12.5 + p.pawDx, -4.4 + p.pawDy, 0, pal.paw, pal, out);
     if (hoodie) drawCuff(ctx, p, pal, out);
     if (id === 'tie') drawTie(ctx, p, pal, out);
+    if (pal.ring) {
+      drawRing(ctx, geo.ringFront, pal, out, true);
+      drawDuckHead(ctx, pal, out);
+    }
 
     ctx.save();
     headXf(ctx, p);
