@@ -59,6 +59,7 @@
     askB: `700 10.5px ${FD}`,
     chip: `700 12px ${FD}`,
     zzz: `700 10px ${FD}`,
+    tag: `700 9px ${FD}`,
   };
 
   let reduceMotion = !!G.calm;
@@ -197,9 +198,85 @@
     }
   });
 
+  // ---------- призрак и штамп поверх препятствия ----------
+  // Отрисовщики сами ставят globalAlpha, поэтому у призрака (o.ghost) они умножают её на GA.
+  const GHOST_A = 0.38;
+  let GA = 1;
+  function ghosted(draw) {
+    return (ctx, o) => {
+      GA = o.ghost ? GHOST_A : 1;
+      if (GA < 1) ctx.globalAlpha = GA;
+      draw(ctx, o);
+      GA = 1;
+    };
+  }
+
+  const STAMP_INK = '#d42a1c';
+  const stampSprites = new Map();
+  const spriteK = () => Math.min(4, Math.max(1, (G.scale || 1) * (G.dpr || 1) * 1.25));
+  function stampSprite(text) {
+    const k = spriteK();
+    let s = stampSprites.get(text);
+    if (s && s.k === k) return s;
+    if (typeof document === 'undefined' || !document.createElement) return null;
+    const meas = G.ctx;
+    meas.save();
+    meas.font = FONT.tag;
+    const tw = meas.measureText(text).width;
+    meas.restore();
+    const w = Math.ceil(tw + 12), h = 15;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(w * k));
+    c.height = Math.max(1, Math.ceil(h * k));
+    const g = c.getContext('2d');
+    if (g) {
+      g.setTransform(k, 0, 0, k, 0, 0);
+      g.fillStyle = 'rgba(255,253,248,0.82)';
+      rr(g, 1, 1, w - 2, h - 2, 2.5);
+      g.fill();
+      g.strokeStyle = STAMP_INK;
+      g.lineWidth = 1.6;
+      g.stroke();
+      g.fillStyle = STAMP_INK;
+      g.font = FONT.tag;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(text, w / 2, h / 2 + 0.6);
+    }
+    s = { c, w, h, k };
+    stampSprites.set(text, s);
+    return s;
+  }
+  const dropStamps = () => stampSprites.clear();
+  G.on('fonts', dropStamps);
+  G.on('resize', dropStamps);
+
+  function centerAltOf(o, def) {
+    if (def.kind === 'air') return (o.fly || 0) + (o.alt || 0);
+    if (typeof def.stompTop === 'function') return def.stompTop(o) - 9;
+    return (o.alt || 0) + (o.h || 30) / 2;
+  }
+  G.onRender(G.LAYER.OBSTACLES + 0.5, (ctx) => {
+    for (const o of G.obstacles) {
+      if (!o.stamp || o.ballistic || o.x < -80 || o.x > G.W + 80) continue;
+      const def = G.obstacleTypes[o.type];
+      const s = def && stampSprite(String(o.stamp));
+      if (!s) continue;
+      ctx.save();
+      ctx.translate(o.x, G.GROUND - centerAltOf(o, def));
+      ctx.rotate(-0.16);
+      ctx.drawImage(s.c, -s.w / 2, -s.h / 2, s.w, s.h);
+      ctx.restore();
+    }
+  });
+
   // ---------- «Отложить»: сплющивание после прыжка сверху ----------
   const SQUASH_T = 0.12;
-  const floorOf = (o) => (o.type === 'call' || o.type === 'minute' ? (o.h || 0) / 2 - (o.fly || 0) : o.type === 'ping' ? -(o.hop || 0) : 0);
+  function floorOf(o) {
+    const def = G.obstacleTypes[o.type];
+    if (def && typeof def.floorOf === 'function') return Number(def.floorOf(o)) || 0;
+    return o.type === 'call' || o.type === 'minute' ? (o.h || 0) / 2 - (o.fly || 0) : o.type === 'ping' ? -(o.hop || 0) : 0;
+  }
   G.on('smash', (o) => {
     if (!o || !o.stomped) return;
     G.knock(o, -G.state.speed, 140, 0);
@@ -339,7 +416,7 @@
 
   function warnChip(ctx, o, topAlt) {
     const t = o.warnT;
-    if (o.ballistic || t == null || t >= WARN_TIME) return;
+    if (o.ballistic || o.ghost || t == null || t >= WARN_TIME) return;
     const a = Math.min(1, (WARN_TIME - t) / 0.3) * clamp((o.x - G.bunny.x - 150) / 80, 0, 1);
     if (a <= 0.01) return;
     const k = t < 0.22 ? Math.max(0.05, backOut(t / 0.22)) : 1;
@@ -859,11 +936,12 @@
   function drawCall(ctx, o) {
     const t = G.state.idleT, lift = o.alt || 0, w = o.w, h = o.h, hw = w / 2, hh = h / 2;
     const live = !o.ballistic, standing = o.level === 0, edge = darkTypeEdge();
-    if (live && o.level !== 2) {
+    const warn = live && !o.ghost;
+    if (warn && o.level !== 2) {
       const a = chevronAlpha(o);
       if (a > 0) drawChevron(ctx, o.fly, standing ? 1 : -1, standing ? G.C.accent : CHEV_DUCK, a);
     }
-    if (live && o.level === 1 && !o.passed) callArch(ctx, o);
+    if (warn && o.level === 1 && !o.passed) callArch(ctx, o);
     if (live && standing) callTripod(ctx, o, G.GROUND - o.fly - lift + hh - 1, edge);
     const bob = live && !standing ? Math.sin(o.bob + t * 3.2) * 2.5 * MOTION : 0;
     ctx.translate(o.x, G.GROUND - o.fly - lift + bob);
@@ -889,21 +967,26 @@
       ctx.fillStyle = LIGHTS[i];
       ellipse(ctx, -hw + 6.5 + i * 4.6, -hh + 5.5, 1.6, 1.6);
     }
-    ctx.globalAlpha = 0.35 + 0.65 * Math.max(0, Math.sin(t * 6 + o.bob));
+    ctx.globalAlpha = (0.35 + 0.65 * Math.max(0, Math.sin(t * 6 + o.bob))) * GA;
     ctx.fillStyle = ALERT_RED;
     ellipse(ctx, hw - 17, -hh + 5.5, 2.3, 2.3);
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = GA;
     ctx.fillStyle = '#ffd9d4';
     ctx.font = FONT.rec;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText('REC', hw - 13.2, -hh + 5.9);
-    const tw = (w - 10) / 3, th = (h - 16) / 2, gx = -hw + 3, gy = -hh + 11;
-    const speaking = Math.floor(t * 1.4 + o.bob) % 6;
-    for (let k = 0; k < 6; k++) {
-      callTile(ctx, gx + (k % 3) * (tw + 2), gy + Math.floor(k / 3) * (th + 2), tw, th, k, k === speaking);
+    const gx = -hw + 3, gy = -hh + 11;
+    if (o.face && typeof o.face.draw === 'function') {
+      o.face.draw(ctx, gx, gy, w - 6, h - 14, t, o);
+    } else {
+      const tw = (w - 10) / 3, th = (h - 16) / 2;
+      const speaking = Math.floor(t * 1.4 + o.bob) % 6;
+      for (let k = 0; k < 6; k++) {
+        callTile(ctx, gx + (k % 3) * (tw + 2), gy + Math.floor(k / 3) * (th + 2), tw, th, k, k === speaking);
+      }
     }
-    if (live && o.x - hw < G.W) glow(o.x, o.fly + lift, 50, '176,200,255', 0.7);
+    if (warn && o.x - hw < G.W) glow(o.x, o.fly + lift, 50, '176,200,255', 0.7);
   }
 
   G.registerObstacle({
@@ -934,7 +1017,7 @@
       return o.level === 0 && circleRect(hb.x, hb.y, hb.r, o.x - 3, o.alt || 0, 6, bottom - (o.alt || 0));
     },
     stompTop: (o) => o.fly + (o.alt || 0) + o.h / 2 - 4,
-    draw: squashed(drawCall, (o) => o.fly + (o.alt || 0) - o.h / 2),
+    draw: ghosted(squashed(drawCall, (o) => o.fly + (o.alt || 0) - o.h / 2)),
   });
 
   // ---------- пинг в личку ----------
@@ -949,7 +1032,7 @@
 
   function drawPing(ctx, o) {
     const S = G.state, t = S.idleT, lift = o.alt || 0, hop = o.hop || 0;
-    if (!o.ballistic && o.x - 20 < G.W) glow(o.x + 13, lift + hop + PING_BASE + 10, 20, '61,139,253', 0.8);
+    if (!o.ballistic && !o.ghost && o.x - 20 < G.W) glow(o.x + 13, lift + hop + PING_BASE + 10, 20, '61,139,253', 0.8);
     warnChip(ctx, o, PING_BASE + PING_HOP + 13);
     if (!o.ballistic && S.mode === 'run') {
       const rel = S.speed * o.drift;
@@ -958,10 +1041,10 @@
         const back = k * 0.035;
         const y = PING_BASE + PING_HOP * Math.abs(Math.sin(o.ph - back * PING_W));
         const rad = 4.2 - k * 0.9;
-        ctx.globalAlpha = (0.5 - k * 0.13) * MOTION;
+        ctx.globalAlpha = (0.5 - k * 0.13) * MOTION * GA;
         ellipse(ctx, o.x + 6 + rel * back, G.GROUND - lift - y, rad, rad);
       }
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = GA;
     }
     const s = Math.sin(o.ph), g = Math.abs(s);
     const squash = o.ballistic ? 0 : Math.max(0, 1 - g / 0.22) * MOTION;
@@ -1039,7 +1122,7 @@
       return circleRect(hb.x, hb.y, hb.r, o.x - 12, cy - 8.5, 24, 17);
     },
     stompTop: (o) => (o.alt || 0) + PING_BASE + (o.hop || 0) + 8.5,
-    draw: squashed(drawPing, (o) => (o.alt || 0) + (o.hop || 0) + 2),
+    draw: ghosted(squashed(drawPing, (o) => (o.alt || 0) + (o.hop || 0) + 2)),
   });
 
   // ---------- ноутбук с работой ----------
@@ -1462,7 +1545,7 @@
 
   function drawAsk(ctx, o) {
     const t = G.state.idleT, lift = o.alt || 0;
-    if (!o.ballistic) {
+    if (!o.ballistic && !o.ghost) {
       const a = chevronAlpha(o);
       if (a > 0) {
         if (o.locked) drawChevron(ctx, o.lane, o.lane < ASK_SPLIT ? 1 : -1, o.lane < ASK_SPLIT ? G.C.accent : CHEV_DUCK, a);
@@ -1541,6 +1624,26 @@
       const cy = o.fly + (o.alt || 0);
       return circleRect(hb.x, hb.y, hb.r, o.x - 32, cy - 11, 64, 22);
     },
-    draw: drawAsk,
+    draw: ghosted(drawAsk),
   });
+
+  G.obstacleKit = {
+    palette: P,
+    motion: () => MOTION,
+    calm: () => reduceMotion,
+    ghostAlpha: () => GA,
+    ghosted,
+    squashed,
+    tickWarn,
+    warnChip,
+    circleRect,
+    bubblePath,
+    glow,
+    backOut,
+    weightFor,
+    darkEdge: darkTypeEdge,
+    shadow(id, fn) {
+      SHADOW[id] = fn;
+    },
+  };
 })();

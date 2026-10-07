@@ -535,6 +535,8 @@
   let labelT = 0;
   let stampT = 0;
   let stampW = 0;
+  const STAMP_DEFAULT = 'ОТМЕНЕНО';
+  let stampText = STAMP_DEFAULT;
   const pop = { t: 0, x: 0, y: 0, s: 1 };
 
   function makePool(n) {
@@ -877,6 +879,10 @@
         n++;
       }
       stampT = STAMP_T;
+      if (stampText !== STAMP_DEFAULT) {
+        stampText = STAMP_DEFAULT;
+        stampW = 0;
+      }
       if (G.fx && G.fx.shake) G.fx.shake(calm ? 2 : n ? 8 : 3);
     },
     stop() {},
@@ -1106,7 +1112,8 @@
     let first = true;
     for (const p of G.pickups) {
       if (p.taken || p.x < -40 || p.x > W + 40) continue;
-      const w = SHADOW_W[p.type] || (POWER[p.type] ? SHADOW_POWER_W : 0);
+      const def = G.pickupTypes[p.type];
+      const w = SHADOW_W[p.type] || (POWER[p.type] ? SHADOW_POWER_W : (def && def.shadowW) || 0);
       if (!w) continue;
       if (first) {
         ctx.globalCompositeOperation = 'multiply';
@@ -1367,8 +1374,10 @@
     ctx.scale(sc, sc);
     ctx.globalAlpha = 0.9 * a;
     ctx.font = FONT_STAMP;
-    if (!stampW) stampW = ctx.measureText('ОТМЕНЕНО').width;
+    if (!stampW) stampW = ctx.measureText(stampText).width;
     const w = stampW + 32;
+    const fit = Math.min(1, (G.W - 24) / w);
+    if (fit < 1) ctx.scale(fit, fit);
     ctx.strokeStyle = RED;
     ctx.lineWidth = 4;
     rr(ctx, -w / 2, -31, w, 60, 8);
@@ -1379,7 +1388,7 @@
     ctx.fillStyle = RED;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('ОТМЕНЕНО', 0, 1);
+    ctx.fillText(stampText, 0, 1);
     ctx.restore();
   }
 
@@ -1397,5 +1406,16 @@
     isActive: isOn,
     left: (id) => (live[id] ? live[id].left : 0),
     give: (id) => activate(id, null),
+    register(def) {
+      if (!def || !def.id || POWER[def.id] || typeof def.icon !== 'function') return false;
+      power(Object.assign({ start() {}, stop() {}, duration: 0, minT: 0, share: 0.1 }, def));
+      return true;
+    },
+    stamp(text) {
+      if (!text) return;
+      stampText = String(text);
+      stampW = 0;
+      stampT = STAMP_T;
+    },
   };
 })();

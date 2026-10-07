@@ -2,14 +2,15 @@
 /*
  * Честность препятствий по настоящим def.hit и физике ядра.
  * Запуск: node game/test/fairness.js [--verbose]
- * Грузит core.js, obstacles.js и balance.js в минимальное окружение (без чужих модулей) и проверяет:
+ * Грузит core.js, obstacles.js, balance.js и KTS-препятствия (kts.js, данные, kts/obstacles.js) в минимальное окружение и проверяет:
  *  - окно одиночного прыжка ≥ 220 мс для каждого наземного типа и низкого созвона на 300/430/570/620 ед/с (шаг 1/240 и 1/60);
- *  - пинг с выравниванием фазы: без прыжка — всегда удар, прыжок в центр окна — всегда чисто;
+ *  - пинг и голосовое: без прыжка — всегда удар, прыжок в центр окна — всегда чисто;
  *  - геометрию «Отложить»: падение сверху по центру всегда касается не ниже def.stompTop − 1;
  *  - приоритет приземления в ядре;
- *  - G.director: hold, chase, потолок очков, резервы, nextArrival;
+ *  - G.director: hold, chase, потолок очков, резервы, nextArrival, ban, queuePickup;
  *  - разбор полёта (info.diagnosis);
- *  - ровную очередь pulse и тихую помощь после трёх коротких забегов.
+ *  - ровную очередь pulse и тихую помощь после трёх коротких забегов;
+ *  - ?kts=off: KTS-типов нет.
  */
 'use strict';
 const fs = require('fs');
@@ -27,7 +28,17 @@ const check = (cond, msg) => {
 };
 
 // ---------- окружение ----------
-function makeEnv() {
+const FILES = [
+  'js/core.js',
+  'js/kts/kts.js',
+  'js/kts/data/people.js',
+  'js/kts/data/calendar.js',
+  'js/kts/data/items.js',
+  'js/obstacles.js',
+  'js/balance.js',
+  'js/kts/obstacles.js',
+];
+function makeEnv(search) {
   let raf = null;
   let seed = 12345;
   const consoleErrors = [];
@@ -62,12 +73,14 @@ function makeEnv() {
     console: { log() {}, info() {}, debug() {}, warn() {}, error: (...a) => consoleErrors.push(a.map(String).join(' ')) },
     document: {
       getElementById: (id) => els[id] || null,
+      createElement: () => el('canvas'),
       documentElement: { getAttribute: () => 'light', setAttribute() {} },
       addEventListener() {},
       activeElement: null,
       hidden: false,
       fonts: null,
     },
+    location: { search: search || '' },
     localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) },
     getComputedStyle: () => ({ getPropertyValue: () => '#8a7a66' }),
     matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
@@ -85,7 +98,7 @@ function makeEnv() {
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext('Math.random = __rand;', sandbox);
-  for (const f of ['js/core.js', 'js/obstacles.js', 'js/balance.js']) {
+  for (const f of FILES) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, f), 'utf8'), sandbox, { filename: f });
   }
   const G = sandbox.G;
@@ -182,7 +195,12 @@ const VARIANTS = [
   ['ping', 'ping', {}],
   ['deadline', 'deadline', {}],
   ['minute 26', 'minute', {}, askLow],
+  ['vacuum .8', 'vacuum', { drift: 0.8 }],
+  ['vacuum 1', 'vacuum', { drift: 1 }],
+  ['vacuum 1.2', 'vacuum', { drift: 1.2 }],
+  ['voice', 'voice', {}],
 ];
+const BOUNCERS = ['ping', 'voice'];
 
 const table = [];
 const centers = {};
@@ -197,7 +215,7 @@ for (const [name, id, opts, prep] of VARIANTS) {
       const w = windowOf(id, opts, prep, v, dt);
       if (dt < 0.01) row.push(String(Math.round(w.ms)).padStart(4));
       check(w.ms >= MIN_WINDOW * 1000 - 1, `window ${name} @${v} dt=1/${Math.round(1 / dt)}: ${Math.round(w.ms)} ms < ${MIN_WINDOW * 1000}`);
-      if (id === 'ping' && dt < 0.01) centers[v] = (w.first + w.last) / 2;
+      if (BOUNCERS.indexOf(id) >= 0 && dt < 0.01) (centers[id] || (centers[id] = {}))[v] = (w.first + w.last) / 2;
     }
     check(!survives(id, opts, prep, v, 1 / 240, null, 1.2), `window ${name} @${v}: no jump should hit`);
   }
@@ -207,10 +225,10 @@ console.log('окна одиночного прыжка, мс (шаг 1/240):');
 console.log('           ' + SPEEDS.map((v) => String(v).padStart(4)).join(' '));
 for (const r of table) console.log(r);
 
-// ---------- 2. пинг с выравниванием ----------
-{
-  const def = G.obstacleTypes.ping;
-  check(typeof def.alignTo === 'function', 'ping.alignTo missing');
+// ---------- 2. пинг и голосовое: скачок к кролику ----------
+check(typeof G.obstacleTypes.ping.alignTo === 'function', 'ping.alignTo missing');
+for (const id of BOUNCERS) {
+  if (!G.obstacleTypes[id] || !centers[id]) continue;
   let hitNoJump = 0, hitCenter = 0;
   const N = 1000;
   for (let i = 0; i < N; i++) {
@@ -220,12 +238,12 @@ for (const r of table) console.log(r);
     const prep = (o) => {
       o.ph = ph0;
     };
-    if (!survives('ping', {}, prep, v, 1 / 240, null, T0)) hitNoJump++;
-    if (!survives('ping', {}, prep, v, 1 / 240, T0 + centers[v], T0)) hitCenter++;
+    if (!survives(id, {}, prep, v, 1 / 240, null, T0)) hitNoJump++;
+    if (!survives(id, {}, prep, v, 1 / 240, T0 + centers[id][v], T0)) hitCenter++;
   }
-  check(hitNoJump === N, `ping: no-jump bot hit ${hitNoJump}/${N} (want all)`);
-  check(hitCenter === 0, `ping: center-jump bot hit ${hitCenter}/${N} (want none)`);
-  console.log(`пинг: без прыжка ${hitNoJump}/${N} ударов, прыжок в центр окна ${hitCenter}/${N}`);
+  check(hitNoJump === N, `${id}: no-jump bot hit ${hitNoJump}/${N} (want all)`);
+  check(hitCenter === 0, `${id}: center-jump bot hit ${hitCenter}/${N} (want none)`);
+  console.log(`${id}: без прыжка ${hitNoJump}/${N} ударов, прыжок в центр окна ${hitCenter}/${N}`);
 }
 
 // ---------- 3. геометрия «Отложить» ----------
@@ -242,6 +260,8 @@ for (const r of table) console.log(r);
       o.ph = 0;
       o.hop = 0;
     }],
+    ['vacuum', 'vacuum', { drift: 1 }],
+    ['voice', 'voice', {}],
   ];
   for (const id of ['deadline', 'minute']) check(typeof G.obstacleTypes[id].stompTop !== 'function', `${id} must not have stompTop`);
   let cases = 0;
@@ -399,10 +419,11 @@ function freshRun() {
   const early = late.filter((o) => o.balArr < holdAt + 2 - 0.05);
   check(holdAt > 0 && early.length === 0, `hold(2): ${early.length} obstacles arrive before t+2 (${early.map((o) => o.type + '@' + o.balArr.toFixed(2)).join(', ')})`);
 
-  // chase: без минутки, дедлайна и пинга
+  // chase: без минутки, дедлайна, пинга и типов с chaseBan
   const banned = [];
   const offChase = G.on('spawn', (o) => {
-    if (D.modes().indexOf('chase') >= 0 && (o.type === 'minute' || o.type === 'deadline' || o.type === 'ping')) banned.push(o.type);
+    const def = G.obstacleTypes[o.type];
+    if (D.modes().indexOf('chase') >= 0 && (o.type === 'minute' || o.type === 'deadline' || o.type === 'ping' || (def && def.chaseBan))) banned.push(o.type);
   });
   invincibleRun(100, () => {
     if (G.state.t >= 5 && D.modes().indexOf('chase') < 0) D.enter('chase');
@@ -433,6 +454,52 @@ function freshRun() {
   env.frame(1 / 60);
   env.frame(1 / 60);
   check(!G.flag('aiming'), 'aiming flag should drop without obstacles');
+
+  // ban: связь не прибывает в окне запрета, даже если её ставят паттерны созвонов
+  for (const k of ['ban', 'banned', 'queuePickup']) check(typeof D[k] === 'function', `G.director.${k} missing`);
+  const COMMS = ['call', 'ping', 'minute', 'voice'];
+  const BAN_FROM = 30, BAN_TO = 36;
+  const comms = [];
+  const offBan = G.on('spawn', (o) => {
+    if (COMMS.indexOf(o.type) >= 0) comms.push(o);
+  });
+  invincibleRun(45, () => {
+    if (G.state.t < 0.05) D.ban(COMMS, BAN_TO, BAN_FROM);
+    for (const o of comms) {
+      if (o.balArr == null && o.x <= HBX) o.balArr = G.state.t;
+    }
+  });
+  offBan();
+  const leaked = comms.filter((o) => o.balArr != null && o.balArr >= BAN_FROM && o.balArr <= BAN_TO);
+  check(comms.length > 0 && leaked.length === 0, `ban: ${leaked.length} comms arrive inside [${BAN_FROM}, ${BAN_TO}] (${leaked.map((o) => o.type + '@' + o.balArr.toFixed(2)).join(', ')})`);
+  check(D.banned('call', 33) && !D.banned('clock', 33) && !D.banned('call', 50), 'banned() by type and time');
+
+  // queuePickup: пикап в вершине одиночной дуги, в своём окне, вне резервов
+  G.registerPickup({ id: 'fairCake', radius: 15, weight: () => 0 });
+  const got = [];
+  const offPk = G.on('spawnPickup', (p) => {
+    if (p.type === 'fairCake') got.push(p);
+  });
+  let req = null;
+  invincibleRun(70, () => {
+    if (!req && G.state.t > 0.05) req = D.queuePickup('fairCake', { fromT: 38, toT: 52 });
+    for (const p of got) {
+      if (p.arr == null && p.x <= HBX) p.arr = G.state.t;
+    }
+  });
+  offPk();
+  const cake = got[0];
+  check(req && req.placed && got.length === 1, `queuePickup: placed ${req && req.placed}, spawned ${got.length}`);
+  if (cake) {
+    check(Math.abs(cake.alt - (22 + ph.peak)) < 2, `queuePickup: apex alt ${cake.alt.toFixed(1)}, want ${(22 + ph.peak).toFixed(1)}`);
+    check(cake.arr >= 46 - 0.01 && cake.arr <= 52 + 3, `queuePickup: arrival ${cake.arr && cake.arr.toFixed(2)} outside window or inside meme reserve`);
+  }
+  let expired = null;
+  invincibleRun(16, () => {
+    if (!expired && G.state.t > 0.05) expired = D.queuePickup('fairCake', { fromT: 1, toT: 2 });
+  });
+  check(expired && expired.dropped && !expired.placed, 'queuePickup: a window that passes during the tutorial is dropped');
+  check(D.queuePickup('noSuchPickup', { fromT: 1, toT: 9 }).dropped, 'queuePickup: unknown type is dropped');
 
   D.reserve(103, 126, 'allhands');
   check(D.busy(120, 121) === 'allhands', 'reserve/busy');
@@ -591,6 +658,20 @@ function freshRun() {
   runFor(61);
   check(!D.assisted(), 'assist: a run over 60 s turns it off');
   console.log('тихая помощь: включается после трёх коротких забегов, выключается после длинного');
+}
+
+// ---------- 9. KTS: типы есть только при включённом слое ----------
+{
+  for (const id of ['vacuum', 'voice']) {
+    const def = G.obstacleTypes[id];
+    check(!!def && Array.isArray(def.causes) && def.causes.length > 0 && typeof def.hitWord === 'string', `kts: ${id} registered with causes/hitWord`);
+  }
+  check(G.obstacleTypes.voice && G.obstacleTypes.voice.chaseBan === true, 'kts: voice is banned in chase like ping');
+  const off = makeEnv('?kts=off');
+  check(!off.G.obstacleTypes.vacuum && !off.G.obstacleTypes.voice, 'kts=off: no KTS obstacle types');
+  check(off.G.kts && off.G.kts.enabled === false, 'kts=off: G.kts.enabled === false');
+  for (const e of off.G.errors) problems.push(`kts=off G.errors [${e.tag}] ${e.message}`);
+  console.log('KTS: пылесос и голосовое зарегистрированы, при ?kts=off их нет');
 }
 
 for (const e of G.errors) problems.push(`G.errors [${e.tag}] ${e.message}`);

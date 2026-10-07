@@ -26,6 +26,8 @@
   const VETERAN_SHOWS = 10;
   const STAIRS_EVERY = 25;
   const CHASE_BAN = { minute: 1, deadline: 1, ping: 1 };
+  const BAN_LEAD = 1.5;
+  const SCHED_BUSY_PRE = 0.5, SCHED_BUSY_POST = 2.5;
   const SEEN_KEY = 'eblan.balance.seen';
 
   const smooth = (k) => k * k * (3 - 2 * k);
@@ -87,6 +89,8 @@
   const modes = { chase: false, fever: false, boss: false };
   let bossPatterns = null;
   const reserves = [];
+  const bans = [];
+  const scheduled = [];
   const suppressed = Object.create(null);
   const BUILTIN = [
     { min: 176, from: 40, to: 46, tag: 'meme' },
@@ -113,6 +117,16 @@
     const d = G.obstacleTypes[id];
     return !!d && (d.minT || 0) <= (t == null ? G.state.t : t);
   };
+  // Запрет по времени прибытия; BAN_LEAD — запас на то, что минимальный интервал отодвинет объект позже оценки.
+  function banned(id, t) {
+    for (const b of bans) if (b.types[id] && t + BAN_LEAD >= b.from && t <= b.to) return true;
+    return false;
+  }
+  function chaseBanned(id) {
+    if (!modes.chase) return false;
+    const d = G.obstacleTypes[id];
+    return !!(CHASE_BAN[id] || (d && d.chaseBan));
+  }
   const isNight = () => {
     const m = G.clockMin();
     return m >= 22 * 60 || m < 6 * 60;
@@ -380,21 +394,22 @@
   // ---------- выбор типа ----------
   function pickId(step, tArr) {
     const t = G.state.t;
-    if (step.ob && has(step.ob, tArr) && !(modes.chase && CHASE_BAN[step.ob])) return step.ob;
+    if (step.ob && has(step.ob, tArr) && !chaseBanned(step.ob) && !banned(step.ob, tArr)) return step.ob;
     const retro = t < dir.retroUntil;
     const strict = step.tight || step.strict;
     let kind = step.kind || (step.ob && G.obstacleTypes[step.ob] ? G.obstacleTypes[step.ob].kind : 'any');
     if (kind === 'any' && isNight() && Math.random() < 0.4) kind = 'air';
+    const open = (def) => !chaseBanned(def.id) && !banned(def.id, tArr);
     const allowed = (def) => {
       if (retro && !CLASSIC[def.id]) return false;
-      if (modes.chase && CHASE_BAN[def.id]) return false;
+      if (!open(def)) return false;
       if (kind === 'ground' && def.kind === 'air') return false;
       if (kind === 'air' && def.kind !== 'air') return false;
       return true;
     };
     let id = strict ? G.pickObstacleType(t, (def) => allowed(def) && !isFresh(def.id)) : null;
     if (!id) id = G.pickObstacleType(t, allowed);
-    if (!id && kind !== 'any') id = G.pickObstacleType(t, (def) => !(modes.chase && CHASE_BAN[def.id]));
+    if (!id && kind !== 'any') id = G.pickObstacleType(t, open);
     return id;
   }
 
@@ -547,6 +562,11 @@
       return;
     }
     teachNow = !!step.teach;
+    if (step.req) {
+      step.req.placed = true;
+      const i = scheduled.indexOf(step.req);
+      if (i >= 0) scheduled.splice(i, 1);
+    }
     try {
       if (step.free || step.line) placeFree(step);
       else placeHazard(step);
@@ -558,7 +578,7 @@
   // ---------- паттерны ----------
   const groundStep = (extra) => Object.assign({ kind: 'ground' }, extra);
   const callStep = (level, extra) => Object.assign({ ob: 'call', kind: 'air', opts: { level } }, extra);
-  const canCall = () => has('call', dir.tp);
+  const canCall = () => has('call', dir.tp) && !banned('call', dir.tp);
 
   const PATTERNS = {
     single: {
@@ -707,7 +727,7 @@
       if ((def.minT || 0) > tp) continue;
       if (Number(def.weight(tp)) <= 0) continue;
       if (dir.retroUntil > G.state.t && !CLASSIC[id]) continue;
-      if (modes.chase && CHASE_BAN[id]) continue;
+      if (chaseBanned(id) || banned(id, tp)) continue;
       const step = debutStep(id, def);
       if (step) return [{ rest: 0.35 }, step, { rest: 0.45 }];
     }
@@ -768,6 +788,11 @@
       return;
     } else if (dir.phase === 'breather') {
       startWave(tp, false);
+    }
+    const due = scheduledFor(tp);
+    if (due) {
+      dir.queue.push(...due);
+      return;
     }
     const debut = debutFor(tp) || snoozeDebut(tp);
     if (debut) {
@@ -1025,6 +1050,40 @@
     return null;
   }
 
+  function ban(types, untilT, fromT) {
+    const set = Object.create(null);
+    for (const id of Array.isArray(types) ? types : [types]) if (id) set[String(id)] = true;
+    const from = Number.isFinite(fromT) ? fromT : G.state.t;
+    if (!(untilT >= from)) return;
+    bans.push({ types: set, from, to: untilT });
+  }
+
+  function schedulePickup(id, o) {
+    const opt = o || {};
+    const from = Number.isFinite(opt.fromT) ? opt.fromT : G.state.t;
+    const to = Number.isFinite(opt.toT) ? opt.toT : from + 20;
+    const req = { id: String(id), from, to, double: !!opt.double, placed: false, dropped: false, step: null };
+    if (G.pickupTypes[req.id] && to >= from) scheduled.push(req);
+    else req.dropped = true;
+    return req;
+  }
+  function scheduledFor(tp) {
+    if (bossPatterns) return null;
+    for (let i = 0; i < scheduled.length; i++) {
+      const req = scheduled[i];
+      if (req.step && dir.queue.indexOf(req.step) >= 0) continue;
+      if (tp > req.to) {
+        req.dropped = true;
+        scheduled.splice(i--, 1);
+        continue;
+      }
+      if (tp < req.from || busyAt(tp - SCHED_BUSY_PRE, tp + SCHED_BUSY_POST)) continue;
+      req.step = { free: true, double: req.double, apexId: req.id, req };
+      return [{ rest: 0.3 }, req.step, { rest: 0.35 }];
+    }
+    return null;
+  }
+
   function nextArrival() {
     const S = G.state, hb = G.bunnyHitbox();
     let best = Infinity;
@@ -1084,6 +1143,9 @@
     suppress(min) {
       suppressed[min] = true;
     },
+    ban,
+    banned: (id, t) => banned(id, t == null ? G.state.t : t),
+    queuePickup: schedulePickup,
     nextArrival,
     assisted: () => help.on,
   };
@@ -1183,6 +1245,8 @@
     dir.pulseWave = -1;
     dir.pulseUntil = 0;
     pending.length = 0;
+    bans.length = 0;
+    scheduled.length = 0;
     speedWins.length = 0;
     speedK = 1;
     msIdx = 0;
