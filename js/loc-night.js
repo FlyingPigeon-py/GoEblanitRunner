@@ -130,6 +130,7 @@
     yield;
 
     const winTop = Math.max(-26, GR - 290), winSill = Math.max(winTop + 70, GR - 165);
+    R.winSill = winSill;
     if (typeof k.windowSprite === 'function') {
       R.win = k.windowSprite({ gw: 112, cols: 2, transom: 0.34, curtain: 0x7f8bb6, top: winTop, sill: winSill, bottom: GR - 20, seed: 57 });
     }
@@ -550,6 +551,7 @@
           ctx.fillStyle = '#f4f1e2';
           dot(ctx, gx + g.w * 0.68, g.y + g.h * 0.3, 7);
         }
+        if (k.call) k.call('bedroom.window', ctx, gx, g.y, g.w, g.h, i);
         if (typeof k.pushPane === 'function') {
           const panes = win.panes;
           if (panes && panes.length) for (let p = 0; p < panes.length; p++) k.pushPane(x + panes[p][0], panes[p][1], panes[p][2], panes[p][3], 4096 + i * 8 + p);
@@ -559,12 +561,18 @@
     },
     wall(ctx, L) {
       const R = L.R || {}, k = kitNow(), rg = region(L);
-      if (R.win) slots(rg, BED.wallPar, BED.winSlot, 330, 140, (i, x) => blit(ctx, R.win, x, 0));
+      if (R.win) {
+        slots(rg, BED.wallPar, BED.winSlot, 330, 140, (i, x) => {
+          blit(ctx, R.win, x, 0);
+          if (k.call && R.winSill) k.call('bedroom.sill', ctx, x, R.winSill, i);
+        });
+      }
       slots(rg, BED.wallPar, BED.winSlot, 330 + BED.winSlot / 2, 130, (i, x) => {
         if (R.carpet && (i & 1) === 0) blit(ctx, R.carpet, x, R.carpetY);
         else if (R.poster) blit(ctx, R.poster, x, R.posterY);
       });
       const S = k.S || {}, gar = S.garland;
+      if (k.call && k.call('bedroom.garland', ctx, rg.u * BED.wallPar, Math.max(10, rg.GR - 300), rg.x0, rg.x1)) return;
       if (gar && gar.c && gar.w > 0) {
         const span = gar.w, sc = rg.u * BED.wallPar, gy = Math.max(10, rg.GR - 300);
         for (let x = rg.x0 - mod(sc + rg.x0, span) - span; x < rg.x1; x += span) blit(ctx, gar, x, gy);
@@ -655,6 +663,11 @@
         }
       });
       const S = k.S || {}, gl = S.garlandLit;
+      if (k.call && k.call('bedroom.garlandGlow', ctx, rg.u * BED.wallPar, Math.max(10, GR - 300), rg.x0, rg.x1, Math.min(1, lamp * emiK))) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        return;
+      }
       if (gl && gl.c && gl.w > 0) {
         const span = gl.w, sc = rg.u * BED.wallPar, gy = Math.max(10, GR - 300);
         ctx.globalCompositeOperation = 'lighter';

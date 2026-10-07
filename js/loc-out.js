@@ -304,6 +304,12 @@
       c.stroke();
     } else if (ad.icon === 'zzz') {
       txt(c, 'z z Z', 0, iy, 600, 9, 'display', ph(ad.band, 0.35), w);
+    } else if (ad.icon === 'heart') {
+      c.beginPath();
+      c.moveTo(0, iy + 5);
+      c.bezierCurveTo(-8, iy, -4.5, iy - 6, 0, iy - 2.4);
+      c.bezierCurveTo(4.5, iy - 6, 8, iy, 0, iy + 5);
+      c.fill();
     } else {
       c.beginPath();
       c.ellipse(-3.5, iy - 1, 2.2, 6, -0.2, 0, TAU);
@@ -526,7 +532,8 @@
       R.refl = ph(0xdfe3e6);
       R.wall = mk(kit, MT.STEP, MT.TOP - MT.BOTTOM, 0, MT.TOP, (c) => drawWallTile(c, ph, dark));
       yield;
-      R.posters = ADS.map((ad) => mk(kit, 60, 70, 30, 35, (c) => drawPoster(c, ph, ad, dark)));
+      const ads = (kit && kit.call && kit.call('metro.ads', ADS)) || ADS;
+      R.posters = ads.map((ad) => mk(kit, 60, 70, 30, 35, (c) => drawPoster(c, ph, ad, dark)));
       yield;
       R.sticker = mk(kit, 48, 12, 24, 6, (c) => {
         c.fillStyle = ph(0xf7f5ef, 0.55);
@@ -1239,7 +1246,7 @@
       pushPane(-M, -M, W + 2 * M, GR - 6 + M, 900);
     },
     wall(ctx, L) {
-      const f = frame(L), R = f.R, F = f.F;
+      const f = frame(L), R = f.R, F = f.F, kit = G.sceneKit;
       const { W, GR, M } = f;
       const sc = scroll(f, RF.PAR_PROPS);
       const silA = Math.min(0.85, clamp01((Number(F.sunset) || 0) * 0.7 + (Number(F.night) || 0) * 0.85));
@@ -1247,9 +1254,10 @@
       for (let i = i0; i <= i1; i++) {
         const booth = mod(i, 5) === 2;
         const h = hash(i, 41);
+        const x = i * RF.SLOT - sc + (hash(i, 43) - 0.5) * 60, y = GR + 3;
+        if (!booth && kit && kit.call && kit.call('roof.slot', ctx, x, y, i, silA)) continue;
         if (!booth && h < 0.18) continue;
         const kind = booth ? 'booth' : PROP_KINDS[Math.floor(hash(i, 42) * PROP_KINDS.length) % PROP_KINDS.length];
-        const x = i * RF.SLOT - sc + (hash(i, 43) - 0.5) * 60, y = GR + 3;
         const sp = R.props[kind];
         if (x + sp.w < -M || x - sp.w > W + M) continue;
         blit(ctx, sp, x, y);

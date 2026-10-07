@@ -255,6 +255,21 @@
     c.fillStyle = k.ph(MAGNETS[0], 0.3);
     k.circle(c, -11, -9, 2.2);
     c.restore();
+    const note = k.call && k.call('kitchen.note');
+    if (note && note.l1) {
+      c.save();
+      c.translate(-2, -64);
+      c.rotate(0.06);
+      c.save();
+      k.softShadow(c, sp, 2, 1, 0.2);
+      rect(c, -17, -11, 34, 22, k.ph(Number.isFinite(note.bg) ? note.bg : MAGNETS[3], 0.3));
+      c.restore();
+      label(k, c, note.l1, 0, -2.5, 700, 6.4, 'display', '#ffffff', 30);
+      if (note.l2) label(k, c, note.l2, 0, 5, 500, 3.6, 'body', 'rgba(255,255,255,0.85)', 30);
+      c.fillStyle = k.ph(MAGNETS[2], 0.3);
+      k.circle(c, 0, -11, 2.4);
+      c.restore();
+    }
     hazeTo(c, sp, k.ph(KC.wall), 0.12);
   }
   function kitchenMicro(k, c, sp) {
@@ -672,14 +687,13 @@
     c.globalAlpha = 1;
     void GR;
   }
-  function officeKanban(k, c, sp) {
+  function officeKanban(k, c, sp, heads) {
     rrFill(k, c, -56, -34, 112, 68, 2, k.ph(0xfbfbf8, 0.4));
     c.strokeStyle = k.ph(0xb9bec4, 0.4);
     c.lineWidth = 1.4;
     k.rr(c, -56, -34, 112, 68, 2);
     c.stroke();
     const ink = k.dark ? '#cfd3d8' : '#3b4048';
-    const heads = ['TODO', 'В РАБОТЕ', 'ГОТОВО'];
     const cols = [0xffe28a, 0xb8e3ff, 0xc9f2b0, 0xffc2d6];
     const r = k.rng(77);
     for (let i = 0; i < 3; i++) {
@@ -699,9 +713,9 @@
     }
     hazeTo(c, sp, k.ph(OC.wall), 0.35);
   }
-  function officePosters(k, c, sp) {
+  function officePosters(k, c, sp, list) {
     for (let i = 0; i < 4; i++) {
-      const [l1, l2, col] = POSTERS[i];
+      const [l1, l2, col] = list[i] || POSTERS[i];
       const x = 30 + i * 60;
       c.save();
       k.softShadow(c, sp, 3, 1.5, 0.22);
@@ -899,8 +913,10 @@
       R.low = k.mk(OT.bay, 132, 0, 6, (c) => officeLowWall(k, c));
       yield;
       R.part = k.mk(OT.part, 240, 0, 238, (c) => officePartition(k, c, GR));
-      R.kanban = k.mk(116, 72, 58, 36, (c, sp) => officeKanban(k, c, sp));
-      R.posters = k.mk(240, 78, 0, 0, (c, sp) => officePosters(k, c, sp));
+      const heads = (k.call && k.call('office.kanban')) || ['TODO', 'В РАБОТЕ', 'ГОТОВО'];
+      const posters = (k.call && k.call('office.posters')) || POSTERS;
+      R.kanban = k.mk(116, 72, 58, 36, (c, sp) => officeKanban(k, c, sp, heads));
+      R.posters = k.mk(240, 78, 0, 0, (c, sp) => officePosters(k, c, sp, posters));
       yield;
       R.panel = k.mk(68, 10, 34, 5, (c) => officePanel(k, c));
       R.panelGlow = k.mk(96, 70, 48, 0, (c) => officePanelGlow(k, c), 1);
@@ -934,6 +950,7 @@
       });
       ctx.fillStyle = k.ph(0xd9dde0, 0.45);
       ctx.fillRect(L.x0, base - 82, L.x1 - L.x0, 2);
+      if (k.call) k.call('office.window', ctx, L, base);
       each(L, OT.bgPar, OT.bay, 30, (i, x) => k.blit(ctx, R.col, x, 0));
     },
     wall(ctx, L) {
@@ -944,7 +961,7 @@
         if (h < 0.42) k.blit(ctx, R.kanban, x + 170, GR - 158);
         else if (h < 0.84) {
           const p = Math.floor(k.hash(i, 52) * 4) % 4;
-          cell(ctx, R.posters, p, 60, x + 160, GR - 196);
+          if (!(k.call && k.call('office.poster', ctx, x + 160, GR - 196, i, p))) cell(ctx, R.posters, p, 60, x + 160, GR - 196);
         }
       });
       each(L, OT.ceilPar, OT.ceil, 40, (i, x) => k.blit(ctx, R.panel, x, 4));
@@ -997,6 +1014,7 @@
           }
         }
         k.blit(ctx, R.mon[i & 1], cx, GR - 42);
+        if (k.call && k.call('office.desk', ctx, cx + 44, GR - 42, i)) return;
         if (k.hash(i, 46) < 0.5) k.blit(ctx, R.props, cx + 44, GR - 42);
       });
     },
