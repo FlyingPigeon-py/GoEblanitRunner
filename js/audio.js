@@ -15,6 +15,7 @@
   const NOISE_SEC = 2;
   const OVER_TICK_GAIN = 0.3;
   const noop = () => {};
+  const ktsOn = () => !!(G.kts && G.kts.enabled);
 
   const vol01 = (v, d) => {
     v = Number(v);
@@ -137,6 +138,10 @@
   const RESTART_FORM = [0, 1, 2, 3];
   const TITLE_PROG = [0, 5, 3, 4];
   const TITLE_LEAD = ['hook', null, 'tans', 'tlull', 'hook2', null, 'tans2', null];
+  const GOOD_PROG = [0, 3, 4, 0];
+  const GOOD_LEAD = ['hook', 'b4', 'hook2', 'a3'].map((k) => LEAD[k]);
+  const GOOD_ARP = [0, 4, 7, 9, 12, 9, 7, 4];
+  const GOOD_SEC = 10;
 
   function vary(src, amt) {
     const p = { o: new Int8Array(src.o), n: new Uint8Array(16) };
@@ -500,7 +505,7 @@
     glide(N.musicDuck.gain, depth, 0.04);
     N.musicDuck.gain.setTargetAtTime(1, ac.currentTime + hold, 0.3);
   }
-  const runCutoff = () => G.lerp(5200, 1900, M.nightK);
+  const runCutoff = () => (M.mood === 2 ? 6800 : M.mood === 1 ? 1500 : G.lerp(5200, 1900, M.nightK));
   function applyMode() {
     if (!N) return;
     const mode = G.state.mode;
@@ -601,7 +606,10 @@
   }
 
   // ---------- музыка ----------
-  const M = { t: 0, step: 0, bar: 0, sec: null, form: 0, nightK: 0, lastAc: 0, titleBar: 0, overTicksAt: Infinity, forceNext: false, crashNext: false };
+  const M = {
+    t: 0, step: 0, bar: 0, sec: null, form: 0, nightK: 0, lastAc: 0, titleBar: 0, overTicksAt: Infinity, forceNext: false, crashNext: false,
+    goodFrom: 0, goodUntil: 0, softUntil: 0, unplugged: false, mood: 0, drumsLvl: 1,
+  };
 
   function isNight() {
     const m = G.clockMin();
@@ -622,33 +630,39 @@
   function runStep(t, sd) {
     if (!M.sec) M.sec = makeSection('A');
     const sec = M.sec, s = M.step, bar = M.bar;
+    const good = t >= M.goodFrom && t < M.goodUntil;
     const fever = G.flag('fever');
-    const party = fever || G.flag('party') || !!(G.powerups && G.powerups.isActive && G.powerups.isActive('friday'));
+    const party = fever || good || G.flag('party') || !!(G.powerups && G.powerups.isActive && G.powerups.isActive('friday'));
     const night = M.nightK > 0.5 && !party, inten = party ? 1 : intensity();
-    const deg = sec.prog[bar & 3];
+    const deg = (good ? GOOD_PROG : sec.prog)[bar & 3];
     const groove = (sec.drums === 'day' && !night) || party;
-    const dp = DRUMS[night ? 'night' : groove && (bar & 1) ? 'day2' : sec.drums];
-    const kc = dp[0][s], hc = dp[2][s];
-    let sc = dp[1][s];
-    if (groove && bar === sec.bars - 1 && s >= 12) sc = FILL[s - 12];
-    if (party && (s & 3) === 0) kick(t, 1);
-    else if (kc !== '.') kick(t, kc === 'K' ? 1 : 0.6);
-    else if (groove && inten > 0.7 && s === 14 && Math.random() < 0.4) kick(t, 0.45);
-    if (sc === 'r') rim(t, 1);
-    else if (sc !== '.') snare(t, sc === 'S' ? 1 : 0.45);
-    if (party && (s & 3) === 2) hat(t, 0.9, true);
-    else if (hc !== '.') hat(t, hc === 'O' ? 0.9 : (s & 3) ? 0.6 : 0.85, hc === 'O');
-    else if (groove && (s & 1) && inten > 0.4 && Math.random() < 0.3 + inten * 0.5) hat(t, 0.35, false);
-    if (s === 0 && ((bar === 0 && groove && sec.type !== 'intro') || M.crashNext)) {
-      crash(t);
-      M.crashNext = false;
+    if (!M.unplugged) {
+      const dp = DRUMS[night ? 'night' : groove && (bar & 1) ? 'day2' : sec.drums];
+      const kc = dp[0][s], hc = dp[2][s];
+      let sc = dp[1][s];
+      if (groove && bar === sec.bars - 1 && s >= 12) sc = FILL[s - 12];
+      if (party && (s & 3) === 0) kick(t, 1);
+      else if (kc !== '.') kick(t, kc === 'K' ? 1 : 0.6);
+      else if (groove && inten > 0.7 && s === 14 && Math.random() < 0.4) kick(t, 0.45);
+      if (sc === 'r') rim(t, 1);
+      else if (sc !== '.') snare(t, sc === 'S' ? 1 : 0.45);
+      if (party && (s & 3) === 2) hat(t, 0.9, true);
+      else if (hc !== '.') hat(t, hc === 'O' ? 0.9 : (s & 3) ? 0.6 : 0.85, hc === 'O');
+      else if (groove && (s & 1) && inten > 0.4 && Math.random() < 0.3 + inten * 0.5) hat(t, 0.35, false);
+      if (s === 0 && ((bar === 0 && groove && sec.type !== 'intro') || M.crashNext)) {
+        crash(t);
+        M.crashNext = false;
+      }
+      if (fever && (s & 3) === 3) rim(t, 0.7);
     }
     if (fever) {
-      if ((s & 3) === 3) rim(t, 0.7);
       if ((s & 1) === 0) {
         const m = foldLead(deg2midi(deg + FEVER_ARP[(s >> 1) & 7], 65) + 12);
         track(blip(N.leadLP, WAVE.box, hz(m), 0, t, 0.003, 0.14, 0.045 * (s & 2 ? 0.7 : 1)));
       }
+    } else if (good && (s & 1) === 0) {
+      const m = foldLead(deg2midi(deg, 65) + GOOD_ARP[(s >> 1) & 7] + 12);
+      track(blip(N.leadLP, 'triangle', hz(m), 0, t, 0.003, 0.16, 0.04 * (s & 2 ? 0.7 : 1)));
     }
 
     const bp = BASS[groove && inten > 0.65 && (bar & 1) ? 'busy' : sec.bass[bar & 1]];
@@ -667,11 +681,12 @@
     }
 
     const lead = night ? sec.nlead : sec.lead;
-    if (lead) {
-      const lp = lead[bar % lead.length], lo = lp.o[s];
+    const lp = good ? GOOD_LEAD[bar & 3] : lead ? lead[bar % lead.length] : null;
+    if (lp) {
+      const lo = lp.o[s];
       if (lo !== REST) {
         const m = foldLead(deg2midi(deg + lo, 65));
-        if (night || sec.type === 'break') track(boxNote(N.leadLP, t, m, 0.9, 1.1));
+        if (!good && (night || sec.type === 'break')) track(boxNote(N.leadLP, t, m, 0.9, 1.1));
         else track(leadNote(N.leadLP, t, m, lp.n[s] * sd, 0.85 + Math.random() * 0.2));
       }
     }
@@ -719,6 +734,7 @@
     M.lastAc = now;
     updateRain();
     ambTick(now);
+    moodTick(now);
     if (mode === 'run' || mode === 'pause') M.nightK += ((isNight() ? 1 : 0) - M.nightK) * Math.min(1, dt * 0.35);
     if (A.muted || !A.music) {
       M.t = now + 0.05;
@@ -742,6 +758,23 @@
   }
   function tickSafe() {
     try { tick(); } catch (e) { G.report('audio tick', e); }
+  }
+  function moodTick(now) {
+    const good = now >= M.goodFrom && now < M.goodUntil;
+    const mood = good ? 2 : now < M.softUntil ? 1 : 0;
+    const drums = mood === 1 ? 0.4 : 1;
+    if (drums !== M.drumsLvl) {
+      M.drumsLvl = drums;
+      glide(N.drums.gain, drums, 0.3);
+    }
+    if (mood !== M.mood) {
+      M.mood = mood;
+      if (G.state.mode === 'run') glide(N.tone.frequency, runCutoff(), 0.35);
+    }
+  }
+  function calmMusic() {
+    M.goodFrom = M.goodUntil = M.softUntil = 0;
+    M.unplugged = false;
   }
 
 
@@ -1262,6 +1295,8 @@
       const t = at('die', 0.3);
       if (t < 0) return 0.6;
       blip(N.sfxIn, 'sine', 150, 45, t, 0.003, 0.22, 0.32, 0.18);
+      if (ktsOn() && type === 'vacuum') return vacuumCrash(t);
+      if (ktsOn() && type === 'voice') return voiceCrash(t);
       const k = kindOf(type);
       if (k !== 'clock' && k !== 'call' && k !== 'tasks' && k !== 'other') noise(N.sfxIn, t, 0.003, 0.25, 0.2, 'lowpass', 3500, 200, 0.9);
       if (k === 'clock') return alarm(N.sfxIn, t + 0.03, 0.95, 1) + 0.15;
@@ -1684,6 +1719,483 @@
     own(o, t + dur + 0.1, f, lp, g);
   }
 
+  // ---------- KTS ----------
+  const BDAY = [77, 81, 84, 81, 86, 84];
+  const BDAY_AT = [0, 0.13, 0.26, 0.45, 0.58, 0.78];
+  const KTS_FANFARE = [72, 72, 72, 77, 76, 81];
+  const KTS_FANFARE_AT = [0, 0.1, 0.2, 0.32, 0.62, 0.76];
+  const KTS_FANFARE_LOW = [0, 0, 0, 72, 0, 77];
+  const FOUND = [89, 93, 96, 100];
+  const BOT_HZ = [392, 466, 523, 622, 698, 784];
+  const BOT_KIND = [84, 88, 91];
+  const WIFI = [83, 79, 74];
+  const VIVI_WIN = [65, 69, 72, 77];
+  const DOOM = [50, 50, 46];
+
+  function contour(param, t, pts) {
+    param.setValueAtTime(pts[1], t);
+    for (let i = 2; i < pts.length; i += 2) param.linearRampToValueAtTime(pts[i + 1], t + pts[i]);
+  }
+  function sing(dest, t, wave, pitch, formant, len, peak, q) {
+    const o = osc(wave, pitch[1], t), bp = ac.createBiquadFilter(), g = ac.createGain(), p = g.gain;
+    contour(o.frequency, t, pitch);
+    bp.type = 'bandpass';
+    bp.Q.value = q;
+    contour(bp.frequency, t, formant);
+    p.setValueAtTime(0, t);
+    p.linearRampToValueAtTime(peak, t + Math.min(0.03, len * 0.25));
+    p.setValueAtTime(peak, t + len * 0.65);
+    p.linearRampToValueAtTime(0, t + len);
+    o.connect(bp);
+    bp.connect(g);
+    g.connect(dest);
+    o.start(t);
+    return own(o, t + len + 0.03, bp, g);
+  }
+  function catVoice(dest, t, k, len, v) {
+    return sing(dest, t, 'sawtooth', [0, 430 * k, len * 0.3, 720 * k, len * 0.75, 600 * k, len, 380 * k],
+      [0, 700, len * 0.25, 2300, len * 0.6, 1500, len, 650], len, 0.26 * v, 1.8);
+  }
+  function kva(dest, t, k, v) {
+    noise(dest, t, 0.001, 0.018, 0.09 * v, 'highpass', 2600, 2600, 0.8);
+    sing(dest, t + 0.012, 'square', [0, 240 * k, 0.05, 210 * k, 0.15, 150 * k], [0, 450, 0.04, 1250, 0.15, 650], 0.16, 0.32 * v, 2.6);
+  }
+  function nyam(dest, t, v) {
+    for (let i = 0; i < 2; i++) {
+      const f = i ? 235 : 205;
+      sing(dest, t + i * 0.2, 'sawtooth', [0, f, 0.16, f * 0.9], [0, 320, 0.04, 1150, 0.11, 950, 0.16, 300], 0.16, 0.22 * v, 1.4);
+    }
+  }
+  function rubberSqueak(dest, t, v) {
+    sing(dest, t, 'sawtooth', [0, 1050, 0.04, 1600, 0.15, 1300], [0, 2400, 0.15, 2900], 0.15, 0.3 * v, 2.5);
+    sing(dest, t + 0.19, 'sawtooth', [0, 1250, 0.03, 1450, 0.1, 1100], [0, 2600, 0.1, 2300], 0.1, 0.18 * v, 2.5);
+    noise(dest, t + 0.17, 0.01, 0.07, 0.025 * v, 'bandpass', 4200, 3600, 1.5);
+  }
+  function mumble(dest, t, n) {
+    let tt = t, last = null;
+    for (let i = 0; i < n; i++) {
+      const len = 0.07 + Math.random() * 0.06, f = 230 + Math.random() * 90;
+      last = sing(dest, tt, 'sawtooth', [0, f, len, f * (0.85 + Math.random() * 0.3)], [0, 500, len * 0.5, 1000 + Math.random() * 500, len, 600], len, 0.17, 1.4);
+      tt += len + 0.02 + Math.random() * 0.03;
+    }
+    return last;
+  }
+  function horn(dest, t, len, f0, f1, r0, r1, v) {
+    const o = osc('sawtooth', f0, t), am = osc('square', r0, t), depth = ac.createGain(), reed = ac.createGain();
+    const lp = ac.createBiquadFilter(), g = ac.createGain(), p = g.gain, peak = 0.08 * v;
+    o.frequency.linearRampToValueAtTime(f1, t + len);
+    if (r1 !== r0) am.frequency.linearRampToValueAtTime(r1, t + len);
+    reed.gain.value = 0.65;
+    depth.gain.value = 0.35;
+    lp.type = 'lowpass';
+    lp.frequency.value = 2600;
+    lp.Q.value = 2.5;
+    p.setValueAtTime(0, t);
+    p.linearRampToValueAtTime(peak, t + 0.03);
+    p.setValueAtTime(peak, t + len * 0.8);
+    p.linearRampToValueAtTime(0, t + len);
+    am.connect(depth);
+    depth.connect(reed.gain);
+    o.connect(reed);
+    reed.connect(lp);
+    lp.connect(g);
+    g.connect(dest);
+    o.start(t);
+    am.start(t);
+    own(o, t + len + 0.03, reed, lp, g);
+    own(am, t + len + 0.03, depth);
+    noise(dest, t, 0.02, len, 0.02 * v, 'bandpass', 3200, 2600, 1.2);
+  }
+  function popper(dest, t, v) {
+    noise(dest, t, 0.001, 0.05, 0.16 * v, 'highpass', 1800, 1200, 0.7);
+    blip(dest, 'sine', 320, 90, t, 0.002, 0.06, 0.12 * v, 0.05);
+  }
+  function stutter(dest, t, len, rate, v, f) {
+    const src = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(), p = g.gain;
+    const n = Math.max(2, Math.round(len * rate)), end = t + n / rate;
+    src.buffer = noiseBuf;
+    bp.type = 'bandpass';
+    bp.frequency.value = f;
+    bp.Q.value = 0.9;
+    p.setValueAtTime(0, t);
+    for (let i = 0; i < n; i++) p.setValueAtTime(i & 1 ? 0.01 * v : (0.06 + Math.random() * 0.08) * v, t + i / rate);
+    p.setTargetAtTime(0, end, 0.01);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(dest);
+    src.start(t, Math.random() * 0.5);
+    return own(src, end + 0.08, bp, g);
+  }
+  function robot(dest, t, n, broken) {
+    const step = broken ? 0.052 : 0.075, end = t + n * step;
+    const o = osc('square', BOT_HZ[0], t), bp = ac.createBiquadFilter(), ring = ac.createGain();
+    const am = osc('sine', broken ? 37 : 61, t), depth = ac.createGain(), g = ac.createGain(), p = g.gain;
+    bp.type = 'bandpass';
+    bp.frequency.value = 1150;
+    bp.Q.value = 1.6;
+    ring.gain.value = 0;
+    depth.gain.value = 1;
+    p.setValueAtTime(0, t);
+    let f = BOT_HZ[BOT_HZ.length - 1];
+    for (let i = 0; i < n; i++) {
+      const s = t + i * step;
+      if (!broken) f = BOT_HZ[(Math.random() * BOT_HZ.length) | 0];
+      else if (!(i & 1)) f = Math.max(140, f * (0.8 + Math.random() * 0.12));
+      o.frequency.setValueAtTime(f, s);
+      const peak = broken && Math.random() < 0.2 ? 0 : 0.26;
+      p.setValueAtTime(0, s);
+      p.linearRampToValueAtTime(peak, s + 0.006);
+      p.setValueAtTime(peak, s + step * 0.6);
+      p.linearRampToValueAtTime(0, s + step * 0.85);
+    }
+    am.connect(depth);
+    depth.connect(ring.gain);
+    o.connect(bp);
+    bp.connect(ring);
+    ring.connect(g);
+    g.connect(dest);
+    o.start(t);
+    am.start(t);
+    own(o, end + 0.03, bp, ring, g);
+    own(am, end + 0.03, depth);
+    return n * step;
+  }
+  function fire(t) {
+    noise(N.sfxIn, t, 0.25, 0.55, 0.12, 'lowpass', 350, 4500, 0.9);
+    paper(t + 0.15, 0.55, 9, 0.5);
+    brass(N.sfxIn, t + 0.3, hz(53), 0.55, 0.6, 400, 2200, 0);
+    brass(N.sfxIn, t + 0.3, hz(60), 0.55, 0.5, 400, 2200, 0);
+    brass(N.sfxIn, t + 0.3, hz(65), 0.55, 0.45, 400, 2400, 5);
+  }
+  function vacuumCrash(t) {
+    boom(t);
+    blip(N.sfxIn, 'sawtooth', 115, 32, t + 0.05, 0.004, 0.8, 0.06, 0.75);
+    noise(N.sfxIn, t + 0.05, 0.01, 0.8, 0.05, 'bandpass', 1500, 220, 4);
+    return 0.95;
+  }
+  function voiceCrash(t) {
+    blip(N.sfxIn, 'sine', 420, 1250, t, 0.002, 0.07, 0.15, 0.05);
+    let tt = t + 0.12;
+    for (let i = 0; i < 4; i++) {
+      const len = 0.09 + i * 0.03, f = 260 - i * 45;
+      sing(N.sfxIn, tt, 'sawtooth', [0, f, len, f * 0.8], [0, 500, len * 0.5, 1200, len, 500], len, 0.2, 1.4);
+      tt += len + 0.02;
+    }
+    blip(N.sfxIn, 'sine', 1320, 1320, tt + 0.04, 0.003, 0.06, 0.06);
+    return tt + 0.12 - t;
+  }
+  function drumroll(t) {
+    const len = 0.9;
+    const src = ac.createBufferSource(), bp = ac.createBiquadFilter(), g = ac.createGain(), p = g.gain;
+    src.buffer = noiseBuf;
+    bp.type = 'bandpass';
+    bp.frequency.value = 1800;
+    bp.Q.value = 0.8;
+    p.setValueAtTime(0, t);
+    let tt = t, gap = 0.075, i = 0;
+    while (tt < t + len - 0.03) {
+      const k = (tt - t) / len, amp = 0.08 + 0.22 * k * k;
+      p.setValueAtTime(i & 1 ? amp * 0.75 : amp, tt);
+      p.exponentialRampToValueAtTime(amp * 0.12, tt + gap * 0.9);
+      tt += gap;
+      gap = Math.max(0.03, gap * 0.92);
+      i++;
+    }
+    p.setTargetAtTime(0, tt, 0.02);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(N.stinger);
+    src.start(t, Math.random() * 0.4);
+    stg(own(src, tt + 0.15, bp, g));
+    stg(noise(N.stinger, t + len, 0.004, 1.1, 0.06, 'highpass', 5000, 7000, 0.7, 0.8));
+    stg(blip(N.stinger, 'sine', 120, 45, t + len, 0.003, 0.3, 0.3, 0.2));
+    return len;
+  }
+  function ktsPeakDay() {
+    const K = G.kts, c = K && typeof K.get === 'function' ? K.get('calendar', 'ktsBirthday') : null;
+    return !!(c && K.today && K.today.m === c.month && K.today.d === c.day);
+  }
+
+  Object.assign(sfx, {
+    cake(n = 1) {
+      const t = at('cake', 0.4);
+      if (t < 0) return;
+      popper(N.sfxIn, t, 1);
+      popper(N.sfxIn, t + 0.07, 0.7);
+      horn(N.sfxIn, t + 0.05, 0.42, 470, 540, 38, 44, 1);
+      const t1 = t + 0.5, odd = n === 2, last = BDAY.length - 1, tl = t1 + BDAY_AT[last];
+      for (let i = 0; i <= last; i++) {
+        const m = i === last && odd ? 83 : BDAY[i];
+        blip(N.bell, WAVE.box, hz(m), 0, t1 + BDAY_AT[i], 0.003, i === last ? 1 : 0.3, 0.08);
+      }
+      if (odd) blip(N.sfxIn, 'triangle', hz(71), hz(68), tl + 0.15, 0.01, 0.4, 0.05, 0.4);
+      else blip(N.bell, WAVE.box, hz(81), 0, tl, 0.003, 1, 0.05);
+      duck(0.55, 1.6);
+    },
+    cakeMissed() {
+      const t = at('cakeMissed', 2);
+      if (t < 0) return;
+      horn(N.sfxIn, t, 0.75, 520, 210, 40, 14, 0.8);
+    },
+    squeak(legendary) {
+      const t = at('squeak', 0.25);
+      if (t < 0) return;
+      rubberSqueak(N.sfxIn, t, 1);
+      if (legendary) sfx.squeakFire();
+    },
+    squeakFire() {
+      const t = at('squeakFire', 1);
+      if (t < 0) return;
+      fire(t + 0.12);
+      duck(0.5, 1);
+    },
+    duckFound() {
+      const t = at('duckFound', 0.3);
+      if (t < 0) return;
+      blip(N.bell, 'triangle', hz(88), 0, t + 0.3, 0.003, 0.2, 0.055);
+      blip(N.bell, 'triangle', hz(93), 0, t + 0.38, 0.003, 0.4, 0.055);
+    },
+    frog() {
+      const t = at('frog', 0.3);
+      if (t < 0) return;
+      kva(N.sfxIn, t, 1, 1);
+      kva(N.sfxIn, t + 0.24, 0.92, 0.85);
+    },
+    nom(kind) {
+      const t = at('nom', 0.15);
+      if (t < 0) return;
+      if (kind === 'khryuchevo') {
+        sing(N.sfxIn, t, 'sawtooth', [0, 140, 0.08, 165, 0.2, 115], [0, 380, 0.07, 900, 0.2, 420], 0.2, 0.3, 1.6);
+        noise(N.sfxIn, t, 0.01, 0.12, 0.07, 'bandpass', 700, 400, 1.5);
+        nyam(N.sfxIn, t + 0.3, 1);
+        return;
+      }
+      const crunchy = kind === 'chakchak' || kind === 'cookie';
+      if (crunchy) paper(t, 0.16, 4, 0.7);
+      nyam(N.sfxIn, t + (crunchy ? 0.12 : 0), 1);
+    },
+    vacuum(k = 1) {
+      const t = at('vacuum', 0.6);
+      if (t < 0) return;
+      const len = 1.15, pan = panner(N.sfxIn, 0.65, 0.15, t, len), dest = pan || N.sfxIn;
+      const o = osc('sawtooth', 88 * k, t), lp = ac.createBiquadFilter(), g = ac.createGain(), p = g.gain;
+      o.frequency.linearRampToValueAtTime(104 * k, t + 0.3);
+      o.frequency.linearRampToValueAtTime(96 * k, t + len);
+      lp.type = 'lowpass';
+      lp.frequency.value = 520;
+      lp.Q.value = 1.2;
+      p.setValueAtTime(0, t);
+      p.linearRampToValueAtTime(0.07, t + 0.18);
+      p.setValueAtTime(0.07, t + len - 0.35);
+      p.linearRampToValueAtTime(0, t + len);
+      o.connect(lp);
+      lp.connect(g);
+      g.connect(dest);
+      o.start(t);
+      noise(dest, t, 0.2, len - 0.2, 0.035, 'bandpass', 1350 * k, 1550 * k, 5);
+      own(o, t + len + 0.06, lp, g, pan);
+    },
+    vacuumDown() {
+      const t = at('vacuumDown', 0.3);
+      if (t < 0) return;
+      blip(N.sfxIn, 'triangle', 130, 40, t, 0.004, 0.45, 0.12, 0.4);
+      noise(N.sfxIn, t, 0.005, 0.45, 0.04, 'bandpass', 1400, 260, 4);
+    },
+    voiceMsg() {
+      const t = at('voiceMsg', 0.8);
+      if (t < 0) return;
+      const pan = panner(N.sfxIn, 0.6, 0.35, t, 0.9), dest = pan || N.sfxIn;
+      blip(dest, 'sine', 1320, 1320, t, 0.003, 0.07, 0.07);
+      const last = mumble(dest, t + 0.16, 5);
+      if (pan) last.__c = pan;
+    },
+    voicePop() {
+      const t = at('voicePop', 0.15);
+      if (t < 0) return;
+      blip(N.sfxIn, 'sine', 420, 1250, t, 0.002, 0.07, 0.16, 0.05);
+      noise(N.sfxIn, t, 0.001, 0.03, 0.06, 'highpass', 3000, 3000, 0.7);
+      blip(N.sfxIn, 'sine', 1320, 1320, t + 0.12, 0.003, 0.05, 0.05);
+    },
+    vpn() {
+      const t = at('vpn', 0.2);
+      if (t < 0) return;
+      noise(N.sfxIn, t, 0.0006, 0.012, 0.16, 'highpass', 3500, 3500, 0.8);
+      blip(N.sfxIn, 'square', 2100, 1500, t, 0.001, 0.018, 0.04, 0.015);
+      noise(N.sfxIn, t + 0.075, 0.0006, 0.02, 0.18, 'bandpass', 2400, 1800, 1.4);
+      blip(N.sfxIn, 'triangle', 900, 620, t + 0.075, 0.001, 0.05, 0.08, 0.04);
+      blip(N.sfxIn, 'sine', 140, 70, t + 0.08, 0.002, 0.1, 0.22, 0.08);
+      blip(N.bell, 'triangle', hz(84), 0, t + 0.2, 0.003, 0.2, 0.06);
+      blip(N.bell, 'triangle', hz(91), 0, t + 0.28, 0.003, 0.35, 0.06);
+    },
+    jam() {
+      const t = at('jam', 0.12);
+      if (t < 0) return;
+      stutter(N.sfxIn, t, 0.24, 36, 1, 1700);
+      blip(N.sfxIn, 'sine', 1400, 300, t, 0.004, 0.26, 0.06, 0.26);
+    },
+    timesheet() {
+      const t = at('timesheet', 0.3);
+      if (t < 0) return;
+      blip(N.sfxIn, 'sine', 2500, 1900, t, 0.001, 0.03, 0.09);
+      noise(N.sfxIn, t, 0.0005, 0.012, 0.05, 'highpass', 4000, 4000, 0.7);
+      blip(N.sfxIn, 'sine', 1650, 1250, t + 0.17, 0.001, 0.03, 0.09);
+      noise(N.sfxIn, t + 0.17, 0.0005, 0.012, 0.05, 'highpass', 3000, 3000, 0.7);
+      blip(N.sfxIn, 'sine', 150, 60, t + 0.36, 0.002, 0.09, 0.2, 0.07);
+      noise(N.sfxIn, t + 0.36, 0.001, 0.05, 0.08, 'lowpass', 1500, 400, 0.7);
+      blip(N.bell, 'triangle', hz(84), 0, t + 0.44, 0.003, 0.18, 0.07);
+      blip(N.bell, 'triangle', hz(89), 0, t + 0.52, 0.003, 0.35, 0.07);
+    },
+    clue() {
+      const t = at('clue', 0.3);
+      if (t < 0) return;
+      paper(t, 0.22, 5, 0.6);
+      blip(N.bell, 'triangle', hz(69), 0, t + 0.12, 0.004, 0.35, 0.06);
+      blip(N.bell, 'triangle', hz(72), 0, t + 0.27, 0.004, 0.5, 0.06);
+      blip(N.bell, 'triangle', hz(68), 0, t + 0.42, 0.004, 0.6, 0.045);
+    },
+    kazan() {
+      const t = at('kazan', 1);
+      if (t < 0) return;
+      blip(N.sfxIn, 'sine', 120, 50, t, 0.002, 0.15, 0.3, 0.1);
+      noise(N.sfxIn, t, 0.001, 0.06, 0.12, 'bandpass', 900, 600, 1);
+      bellStrike(N.bell, t + 0.01, 196, 1.3, 2.2);
+      blip(N.bell, 'sine', 196 * 1.48, 0, t + 0.01, 0.003, 1.6, 0.04);
+      duck(0.6, 1.5);
+    },
+    goodButton() {
+      const t = at('goodButton', 1);
+      if (t < 0) return;
+      noise(N.sfxIn, t, 0.0005, 0.008, 0.2, 'highpass', 3000, 3000, 0.8);
+      blip(N.sfxIn, 'square', 2300, 1700, t, 0.001, 0.014, 0.05, 0.012);
+      blip(N.sfxIn, 'sine', 170, 60, t + 0.005, 0.002, 0.1, 0.26, 0.08);
+      noise(N.sfxIn, t + 0.08, 0.42, 0.05, 0.06, 'bandpass', 400, 5000, 1.2);
+      for (let i = 0; i < PENTA_UP.length; i++) blip(N.bell, 'triangle', hz(77 + PENTA_UP[i]), 0, t + 0.15 + i * 0.04, 0.003, 0.25, 0.05);
+      duck(0.5, 0.5);
+    },
+    meow() {
+      const t = at('meow', 0.4);
+      if (t < 0) return;
+      catVoice(N.sfxIn, t, 1.1, 0.5, 1);
+    },
+    vivi() {
+      const t = at('vivi', 1.5);
+      if (t < 0) return;
+      catVoice(N.sfxIn, t, 1.25, 0.42, 1);
+      for (let i = 0; i < VIVI_WIN.length; i++) brass(N.sfxIn, t + 0.45 + i * 0.02, hz(VIVI_WIN[i]), 0.55, 0.45, 700, 2600, i === VIVI_WIN.length - 1 ? 5 : 0);
+      bellStrike(N.bell, t + 0.47, hz(96), 0.7, 1.1);
+      duck(0.6, 1);
+    },
+    kotzilla() {
+      const t = at('kotzilla', 1);
+      if (t < 0) return 0;
+      sing(N.sfxIn, t, 'sawtooth', [0, 70, 0.5, 58], [0, 300, 0.25, 700, 0.5, 400], 0.5, 0.35, 0.9);
+      noise(N.sfxIn, t, 0.05, 0.45, 0.07, 'lowpass', 600, 250, 0.8, 0.5);
+      catVoice(N.sfxIn, t + 0.32, 0.5, 1.1, 1.4);
+      catVoice(N.sfxIn, t + 0.33, 1, 1.05, 0.5);
+      duck(0.5, 1.4);
+      return 1.45;
+    },
+    bot(phase, text) {
+      const t = at('bot-' + phase, 0.4);
+      if (t < 0) return;
+      if (phase === 'enter') {
+        blip(N.sfxIn, 'sawtooth', 180, 520, t, 0.02, 0.25, 0.035, 0.25);
+        blip(N.sfxIn, 'square', 880, 880, t + 0.28, 0.002, 0.05, 0.035);
+        blip(N.sfxIn, 'square', 1320, 1320, t + 0.36, 0.002, 0.07, 0.035);
+      } else if (phase === 'predict') {
+        const len = robot(N.sfxIn, t, G.clamp(Math.round(String(text || '').length / 4), 5, 12), false);
+        blip(N.sfxIn, 'square', 1250, 1250, t + len + 0.06, 0.002, 0.05, 0.04);
+        blip(N.sfxIn, 'square', 930, 880, t + len + 0.15, 0.002, 0.09, 0.04, 0.08);
+      } else if (phase === 'kind') {
+        const len = robot(N.sfxIn, t, 10, true);
+        stutter(N.sfxIn, t + len * 0.4, 0.12, 50, 0.7, 3000);
+        for (let i = 0; i < BOT_KIND.length; i++) blip(N.bell, 'sine', hz(BOT_KIND[i]), 0, t + len + 0.08 + i * 0.07, 0.003, i === 2 ? 0.35 : 0.12, 0.06);
+      } else if (phase === 'dive') {
+        blip(N.sfxIn, 'sine', 1700, 500, t, 0.01, 0.4, 0.06, 0.4);
+        noise(N.sfxIn, t, 0.05, 0.3, 0.03, 'bandpass', 3000, 800, 1.5);
+      } else if (phase === 'blocked') {
+        blip(N.sfxIn, 'sine', 140, 45, t, 0.002, 0.14, 0.28, 0.1);
+        noise(N.sfxIn, t, 0.001, 0.06, 0.14, 'lowpass', 2400, 500, 0.8);
+        blip(N.sfxIn, 'sawtooth', 520, 55, t + 0.06, 0.01, 0.6, 0.05, 0.6);
+        stutter(N.sfxIn, t + 0.1, 0.3, 24, 0.8, 1200);
+      } else if (phase === 'leave') {
+        noise(N.sfxIn, t, 0.15, 0.2, 0.04, 'bandpass', 600, 3000, 1.2);
+        blip(N.sfxIn, 'square', 900, 1400, t + 0.1, 0.002, 0.06, 0.03, 0.05);
+      }
+    },
+    secret() {
+      if (!N || !unlocked || A.muted) return;
+      const over = G.state.mode === 'over', now = ac.currentTime + 0.01;
+      const t = over ? Math.max(now + 0.1, stingerFree + 0.15) : Math.max(now + 0.3, achFree);
+      const dest = over ? N.stinger : N.sfxIn, shine = over ? N.stinger : N.bell, keep = over ? stg : noop;
+      for (let i = 0; i < FOUND.length; i++) keep(blip(shine, 'triangle', hz(FOUND[i]), 0, t + i * 0.055, 0.003, 0.28, 0.05));
+      keep(noise(shine, t, 0.15, 0.4, 0.03, 'highpass', 6000, 9000, 0.7));
+      keep(brass(dest, t + 0.28, hz(77), 0.09, 0.6, 700, 2600, 0));
+      keep(brass(dest, t + 0.28, hz(81), 0.09, 0.45, 700, 2600, 0));
+      keep(brass(dest, t + 0.42, hz(84), 0.5, 0.7, 700, 2800, 5));
+      keep(brass(dest, t + 0.42, hz(89), 0.5, 0.5, 700, 2800, 0));
+      keep(blip(shine, 'sine', hz(101), 0, t + 0.42, 0.004, 0.9, 0.035));
+      if (over) stingerFree = t + 1;
+      else {
+        achFree = t + 1;
+        duck(0.55, t - ac.currentTime + 0.9);
+      }
+    },
+    inevitable() {
+      if (!N || !unlocked || A.muted) return;
+      const over = G.state.mode === 'over', now = ac.currentTime + 0.01;
+      const t = over ? Math.max(now, stingerFree + 0.1) : Math.max(now, achFree);
+      const dest = over ? N.stinger : N.sfxIn, keep = over ? stg : noop;
+      for (let i = 0; i < DOOM.length; i++) {
+        const last = i === DOOM.length - 1, s = t + i * 0.24;
+        keep(brass(dest, s, hz(DOOM[i]), last ? 0.85 : 0.12, 0.9, 300, 1300, last ? 4.5 : 0));
+        keep(blip(dest, 'sine', hz(DOOM[i] - 12), hz(DOOM[i] - 13), s, 0.004, last ? 0.9 : 0.22, 0.28, last ? 0.9 : 0.2));
+      }
+      keep(blip(dest, 'sine', 500, 1900, t + 1.05, 0.02, 0.2, 0.06, 0.2));
+      keep(blip(dest, 'triangle', hz(77), 0, t + 1.3, 0.003, 0.12, 0.08));
+      keep(blip(dest, 'triangle', hz(84), 0, t + 1.42, 0.003, 0.45, 0.08));
+      if (over) stingerFree = t + 1.9;
+      else achFree = t + 1.9;
+    },
+    birthday(full) {
+      const t = at('birthday', 3);
+      if (t < 0) return;
+      const t0 = t + 0.35;
+      horn(N.sfxIn, t0, 0.32, 500, 560, 40, 40, 0.9);
+      if (!full) return;
+      const peak = ktsPeakDay(), f0 = t0 + 0.3, last = KTS_FANFARE.length - 1, end = f0 + KTS_FANFARE_AT[last];
+      for (let i = 0; i <= last; i++) {
+        const s = f0 + KTS_FANFARE_AT[i], low = KTS_FANFARE_LOW[i];
+        const len = i === last ? (peak ? 1 : 0.7) : low ? 0.22 : 0.06;
+        brass(N.sfxIn, s, hz(KTS_FANFARE[i]), len, 0.8, 600, 2700, i === last ? 5 : 0);
+        if (low) brass(N.sfxIn, s, hz(low), len, 0.5, 600, 2400, 0);
+      }
+      popper(N.sfxIn, end, 1);
+      popper(N.sfxIn, end + 0.06, 0.8);
+      noise(N.sfxIn, end, 0.005, 1, 0.05, 'highpass', 5500, 7500, 0.7, 0.8);
+      bellStrike(N.bell, end, hz(96), 0.8, 1.3);
+      if (peak) for (let i = 0; i < 4; i++) popper(N.sfxIn, end + 0.3 + i * 0.13, 0.6);
+      duck(0.45, end - ac.currentTime + 0.8);
+    },
+    wifi(up) {
+      const t = at('wifi', 0.5);
+      if (t < 0) return;
+      const n = WIFI.length;
+      for (let i = 0; i < n; i++) blip(N.sfxIn, 'sine', hz(WIFI[up ? n - 1 - i : i]), 0, t + i * 0.11, 0.004, i === n - 1 ? 0.3 : 0.12, 0.07);
+      if (!up) noise(N.sfxIn, t, 0.005, 0.3, 0.03, 'bandpass', 2500, 900, 0.8);
+    },
+    salute() {
+      const t = at('salute', 1.5);
+      if (t < 0) return;
+      for (let i = 0; i < 4; i++) {
+        const s = t + i * 0.35 + Math.random() * 0.15;
+        blip(N.sfxIn, 'sine', 500, 1400, s, 0.02, 0.25, 0.025, 0.25);
+        popper(N.sfxIn, s + 0.3, 0.7);
+        paper(s + 0.35, 0.4, 6, 0.4);
+      }
+    },
+  });
+
   // ---------- API ----------
   function syncRunning() {
     if (!ac) return;
@@ -1760,6 +2272,9 @@
     recordArmed = G.state.best >= 30;
     chain = 0;
     pendingHit = null;
+    cakeN = 0;
+    bdayRun = false;
+    calmMusic();
     if (!N) return;
     setAmbient(null);
     stopStingers();
@@ -1778,18 +2293,22 @@
     applyMode();
     if (s && s.fromStart) sfx.kickoff();
     else sfx.restart();
+    if (ktsOn() && typeof G.kts.event === 'function' && G.kts.event('ktsBirthday')) playBirthday(!!(s && s.fromStart));
   }
 
   function onDie(info) {
     pendingHit = null;
     recordArmed = false;
+    calmMusic();
     if (!N) return;
     const now = ac.currentTime;
     tapeStop(now);
     const len = sfx.die(info && info.type);
     if (unlocked && !A.muted) {
       const jAt = now + Math.max(G.cfg.overlayDelay + 0.05, len - 0.1);
-      const jLen = info && info.isRecord ? jingleRecord(jAt) : jingleSad(jAt);
+      const record = !!(info && info.isRecord);
+      const roll = record && ktsOn() ? drumroll(jAt) : 0;
+      const jLen = record ? jingleRecord(jAt + roll) + roll : jingleSad(jAt);
       stingerFree = jAt + jLen;
       M.overTicksAt = jAt + jLen + 1.2;
     }
@@ -1798,6 +2317,7 @@
 
   function onPickup(p, def) {
     const id = String((p && p.type) || '');
+    if (ktsOn() && ktsPickup(id, p, def)) return;
     if ((p && (p.gold || p.golden)) || (def && (def.gold || def.golden)) || /gold|золот/i.test(id)) sfx.golden();
     else if (/carrot|морк/i.test(id)) sfx.carrot();
     else if (powerupT !== G.state.realT) sfx.pick();
@@ -1805,7 +2325,8 @@
   function onPowerup(pu) {
     powerupT = G.state.realT;
     const id = String((pu && pu.id) || '');
-    if (/coffee|кофе/i.test(id)) sfx.coffee();
+    if (id === 'vpn' && ktsOn()) sfx.vpn();
+    else if (/coffee|кофе/i.test(id)) sfx.coffee();
     else if (isShield(id)) sfx.shield();
     else if (/cancel|отмен/i.test(id)) sfx.cancel();
     else if (/friday|party|пятниц/i.test(id)) sfx.friday();
@@ -1825,11 +2346,108 @@
     smashT = G.state.realT;
     const h = pendingHit && pendingHit.o === o ? pendingHit : null;
     pendingHit = null;
+    const type = o && o.type;
+    if (ktsOn()) {
+      if (h && vpnOn() && isComm(type)) {
+        sfx.jam();
+        return;
+      }
+      if (type === 'voice') sfx.voicePop();
+      else if (type === 'vacuum') sfx.vacuumDown();
+    }
     if (h && h.stomp) return;
     if (h && h.fever) sfx.boing();
     else if (h && h.stumble) sfx.stumble();
     else if (h && h.cancel && !pendingInv) sfx.shieldPop();
-    sfx.smash(o && o.type);
+    sfx.smash(type);
+  }
+
+  let cakeN = 0, bdayRun = false, ktsAchT = -1, ktsSkinT = -1, achSeenT = -1, skinSeenT = -1;
+  const heard = typeof WeakSet === 'function' ? new WeakSet() : null;
+  const vpnOn = () => !!(G.powerups && typeof G.powerups.isActive === 'function' && G.powerups.isActive('vpn'));
+  const isLegendary = (p, def) => !!((p && (p.legendary || /legend/i.test(String(p.spot || '')))) || (def && def.legendary));
+  function isComm(type) {
+    if (type === 'voice') return true;
+    const k = kindOf(type);
+    return k === 'call' || k === 'ping' || k === 'minute';
+  }
+  function holdQueue(sec) {
+    if (!(sec > 0)) return;
+    const end = ac.currentTime + sec;
+    if (G.state.mode === 'over') stingerFree = Math.max(stingerFree, end);
+    else achFree = Math.max(achFree, end);
+  }
+  function startGood() {
+    if (!N || G.state.mode !== 'run' || M.goodUntil > ac.currentTime) return;
+    sfx.goodButton();
+    const now = ac.currentTime;
+    M.goodFrom = now + 0.5;
+    M.goodUntil = now + 0.5 + GOOD_SEC;
+    M.crashNext = true;
+  }
+  function playBirthday(full) {
+    bdayRun = true;
+    sfx.birthday(full);
+  }
+  function ktsPickup(id, p, def) {
+    switch (id) {
+      case 'cake':
+        sfx.cake(++cakeN);
+        return true;
+      case 'duck':
+        sfx.squeak(isLegendary(p, def));
+        return true;
+      case 'frog':
+      case 'toad':
+        sfx.frog();
+        if (N && G.state.mode === 'run') M.softUntil = ac.currentTime + 4;
+        return true;
+      case 'echpochmak':
+        sfx.golden();
+        sfx.nom(id);
+        return true;
+      case 'chakchak':
+      case 'khryuchevo':
+      case 'cookie':
+        sfx.nom(id);
+        return true;
+      case 'vpn':
+        return true;
+      case 'timesheet':
+        sfx.timesheet();
+        return true;
+      case 'plovClue':
+        sfx.clue();
+        return true;
+      case 'kazan':
+        sfx.kazan();
+        return true;
+      case 'goodButton':
+        startGood();
+        return true;
+      case 'cat':
+        sfx.meow();
+        return true;
+    }
+    return false;
+  }
+  function ktsEnter(o) {
+    if (o.type !== 'vacuum' && o.type !== 'voice') return false;
+    if (heard) {
+      if (heard.has(o)) return true;
+      heard.add(o);
+    }
+    if (o.type === 'vacuum') sfx.vacuum(G.clamp(Number(o.drift) || 1, 0.7, 1.3));
+    else sfx.voiceMsg();
+    return true;
+  }
+  function ktsScan() {
+    const list = G.obstacles;
+    if (!heard || !list || G.state.mode !== 'run' || !ktsOn()) return;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (o && (o.type === 'vacuum' || o.type === 'voice') && !o.dead && !o.deco && o.x - 30 < G.W) ktsEnter(o);
+    }
   }
 
   const gesture = () => {
@@ -1859,11 +2477,18 @@
     sfx.milestone();
     M.forceNext = true;
   });
-  G.on('achievement', () => sfx.achievement());
-  G.on('skinUnlock', () => sfx.achievement('skin'));
+  G.on('achievement', () => {
+    achSeenT = G.state.realT;
+    if (ktsAchT !== achSeenT) sfx.achievement();
+  });
+  G.on('skinUnlock', () => {
+    skinSeenT = G.state.realT;
+    if (ktsSkinT !== skinSeenT) sfx.achievement('skin');
+  });
   G.on('clockRing', () => { if (G.state.mode === 'run') sfx.clockRing(); });
   G.on('telegraph', (o, def, phase) => {
     if (!o || G.state.mode !== 'run') return;
+    if (phase === 'enter' && ktsOn() && ktsEnter(o)) return;
     if (phase === 'enter' && kindOf(o.type) === 'call') sfx.buzz();
     else sfx.telegraph(o.type, phase);
   });
@@ -1954,4 +2579,54 @@
       sfx.record();
     }
   }, 95);
+
+  G.onUpdate(ktsScan, 97);
+  G.on('kts:npc', (e) => {
+    if (!e || !ktsOn()) return;
+    if (e.id === 'toxic') sfx.bot(e.phase, e.text);
+    else if (e.id === 'vivi' && e.phase === 'enter') sfx.vivi();
+    else if (e.id === 'cat' && e.phase === 'enter') sfx.meow();
+  });
+  G.on('kts:event', (e) => {
+    if (!e || !ktsOn()) return;
+    const on = e.phase !== 'end';
+    if (e.id === 'wifi') {
+      const unplugged = on && G.state.mode === 'run';
+      if (unplugged === M.unplugged) return;
+      M.unplugged = unplugged;
+      sfx.wifi(!unplugged);
+      if (!unplugged) M.crashNext = true;
+      return;
+    }
+    if (!on) return;
+    if (e.id === 'vivi') sfx.vivi();
+    else if (e.id === 'cakeMissed') sfx.cakeMissed();
+    else if (e.id === 'birthday' && !bdayRun) playBirthday(true);
+    else if (e.id === 'salute') sfx.salute();
+  });
+  G.on('kts:secret', (e) => {
+    if (!e || !ktsOn() || !N) return;
+    if (e.id === 'kotzilla') holdQueue(sfx.kotzilla());
+    else if (e.id === 'inevitable') sfx.inevitable();
+    else if (e.id === 'goodButton') startGood();
+    sfx.secret();
+  });
+  G.on('kts:duck', (e) => {
+    if (!e || !ktsOn() || !N) return;
+    const legendary = !!(e.def && e.def.legendary) || /legend/i.test(String(e.id || ''));
+    const prev = lastAt.squeak;
+    if (!(prev !== undefined && ac.currentTime - prev < 0.5)) sfx.squeak(legendary);
+    else if (legendary) sfx.squeakFire();
+    sfx.duckFound();
+  });
+  G.on('kts:ach', () => {
+    if (!ktsOn() || achSeenT === G.state.realT) return;
+    ktsAchT = G.state.realT;
+    sfx.achievement();
+  });
+  G.on('kts:skin', () => {
+    if (!ktsOn() || skinSeenT === G.state.realT) return;
+    ktsSkinT = G.state.realT;
+    sfx.achievement('skin');
+  });
 })();
