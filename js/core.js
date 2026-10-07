@@ -199,6 +199,14 @@
   G.bunny = { x: 0, size: G.cfg.heroScale, alt: 0, v: 0, jumps: 0, coyote: 0, airT: 0, phase: 0, dead: false };
   G.input = { held: false, bufferT: 0, fastFall: false };
   G.camera = { x: 0, y: 0, zoom: 1, rot: 0, fx: 0, fy: 0 };
+  G.worldToDom = (x, alt) => ({ x: x * G.scale, y: (G.GROUND - (alt || 0)) * G.scale });
+
+  // Набранные с клавиатуры символы для секретных слов: raw — как набрано, buffer — строчными.
+  G.words = { raw: '', buffer: '' };
+  G.typeWord = (text, source) => {
+    const t = String(text == null ? '' : text).trim();
+    if (t) G.emit('word', { text: t, lower: t.toLowerCase(), source: source || 'field' });
+  };
 
   G.heroX = () => G.W / 2 - 40;
   G.speedAt = (t) => G.cfg.baseSpeed + G.cfg.speedGain * (1 - Math.exp(-t / G.cfg.speedTau));
@@ -692,6 +700,14 @@
   // ---------- ввод ----------
   const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW', 'Enter']);
   function bindInput() {
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || !e.key || e.key.length !== 1) return;
+      const tgt = e.target;
+      if (tgt && tgt.closest && tgt.closest('input, textarea, select, [contenteditable]')) return;
+      G.words.raw = (G.words.raw + e.key).slice(-40);
+      G.words.buffer = G.words.raw.toLowerCase();
+      G.emit('type', { raw: G.words.raw, buffer: G.words.buffer, char: e.key });
+    });
     G.stage.addEventListener('pointerdown', (e) => {
       if (e.button !== undefined && e.button !== 0) return;
       if (e.target && e.target.closest && e.target.closest('button, a, input, select, textarea, label, [data-noinput]')) {

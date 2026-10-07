@@ -151,3 +151,64 @@
 В ядре уже есть приоритет приземления (A1): `G.cfg.landPriority = 0.07`, в `updateBunny` нажатие незадолго до касания ждёт приземления и становится полным прыжком.
 
 Свои просьбы к ядру и соседям пиши в `notes/<пакет>.md` (например `notes/gameplay-a.md`, `notes/visual-c.md`).
+
+## Заход 4: культура KTS (действует поверх всего выше)
+
+Игру делаем «про KTS». План — `../kts_plan/PLAN.md` (пункты К*, Ж*, секретки С*, уточки), бриф — `../kts_brief/*.md`, задание — в плане. Правило объёма от пользователя: **только самое известное и узнаваемое, без локальных историй**. Делаем: К1 дайджест-экран, К2 язык KTS в текстах, К3 торт Дениса, К4 бот-токсик, К5 «залогай часики» (упрощённо), К6 плов, К7 жаба среды, К8 трусы и толстовка, К9 Гастрокайфарики, К10 VPN Марата, К11 Виви против пылесоса и Снежок, К12 вай-фай и Серёга, К14 крыша, К16 Котзилла, К18 Мордор (упрощённо), К19 кнопка «Сделать хорошо», К20 уточки, К21 ДР KTS. **Не делаем:** К13 восемь встреч, К15 будка, К17 Шаржи и прочие локальные истории; из желательного (Ж*) — только если это тот же известный мем и дёшево.
+
+Ветка `kts` локальная, **в публичный origin не пушим** (репозиторий и Pages публичные). Бриф, план и `SECRETS.md` в репозиторий не кладём — они в `../kts_brief`, `../kts_plan`, `../kts_out`.
+
+### Файлы и владельцы
+
+| Пакет | Файлы |
+|---|---|
+| П1 препятствия и бонусы | `js/obstacles.js`, `js/pickups.js`, `js/balance.js`, `test/fairness.js`, `js/kts/obstacles.js`, `js/kts/pickups.js`, `js/kts/data/items.js` |
+| П2 NPC и преследователи | `js/modes.js`, `js/events.js`, `js/kts/npc.js`, `js/kts/data/npc.js` |
+| П3 локации, фон, сезоны | `js/scene.js`, `js/loc-day.js`, `js/loc-out.js`, `js/loc-night.js`, `js/weather.js`, `js/kts/world.js`, `js/kts/data/world.js` |
+| П4 ачивки, скины, прогресс | `js/meta.js`, `css/meta.css`, `js/bunny.js`, `js/kts/progress.js`, `js/kts/data/progress.js` |
+| П5 тексты и экраны | `js/ui.js`, `index.html` (кроме списка `<script>`), `css/base.css`, `js/kts/screens.js`, `js/kts/data/lines.js` |
+| П6 секретки и уточки | `js/kts/secrets.js`, `js/kts/ducks.js`, `js/kts/data/secrets.js`, `js/kts/data/ducks.js`, `../kts_out/SECRETS.md` |
+| П7 звук | `js/audio.js` |
+| П8 визуальные эффекты | `js/fx.js`, `js/look.js`, `js/kts/fx.js` |
+| Интегратор | `js/core.js`, `js/boot.js`, `js/kts/kts.js`, `js/kts/data/people.js`, `js/kts/data/calendar.js`, `build.js`, `test/smoke.js`, `CONTRACT.md`, список `<script>` |
+
+Порядок скриптов выставлен: `kts/kts.js` и `kts/data/*.js` сразу после `core.js`; логика `kts/*.js` — после `events.js`, перед `boot.js`. Заготовки всех файлов созданы. Просьбы к соседям — в `notes/kts-<пакет>.md`.
+
+### Правила
+
+- **Весь KTS-контент — в `js/kts/data/*.js`** через `G.kts.add(section, {...})`: имена, фразы, мемы, даты, шансы. Логика — в своих файлах. Любую шутку выключает `on: false` у записи, любого человека — `on: false` в `people.js`.
+- **Игра работает без KTS.** `?kts=off` или сборка `node build.js --no-kts`: `G.kts.enabled === false` (или `G.kts` нет). Во всех существующих файлах обращения к KTS — только с проверкой `G.kts && G.kts.enabled`. Smoke гоняет оба режима и даты (среда 2026-10-07, ДР KTS 2026-11-09, Новый год, Хэллоуин).
+- **Люди.** Только из `people.js`: `denis`, `sergey`, `sasha`, `marat`, `zhenya`. Имя в тексте — токеном `{denis.nom}` / `{denis.gen}` / `{denis.dat}` …, тогда выключение человека убирает строку. Ничего о внешности, здоровье, семье, личной жизни, никаких новых «фактов», никого в плохом свете.
+- **Цитаты.** Первоисточника нет. Фразы из канала выводим без подписи «сказал такой-то». Записи с прямой цитатой помечай `check: true`.
+- **Чужие бренды** — только словом, без логотипов.
+- **Производительность.** Не больше одного KTS-NPC на экране, эмодзи и иконки — только процедурно нарисованные и закэшированные спрайты, без `shadowBlur`/`ctx.filter` в кадре.
+- **Честность.** Новые препятствия и паттерны проходят `node test/fairness.js` и бот-планировщик в smoke. KTS-бонусы в сумме — не больше +10% к медиане очков.
+
+### API `G.kts` (`js/kts/kts.js`)
+
+- `enabled`, `debug` (`?kts-debug=1`), `query` (параметры URL).
+- `add(section, obj)`, `get(section, id)` (с учётом `on` и людей), `raw(section, id)`, `all(section)`.
+- `person(id)`, `fmt(str, ctx)` (токены `{person.form}` и `{ключ}` из ctx; `null`, если человек выключен), `line(pathOrArray, ctx, bagKey)` — случайная строка без повторов, путь вида `'items.cake.toast'`.
+- `today`: `{date, y, m, d, dow, hh, mm, iso, md, week, monday, tuesday, wednesday, friday, friday13}`. Подмена: `?date=YYYY-MM-DD`, `?time=HH:MM`. Обновляется на `start`, событие `kts:day`.
+- `inWindow(from, to)`, `event(calendarId)` (`ktsBirthday`, `ktsBirthdayGifts`, `halloween`, `newYear`, `lastWednesdayOfYear`), `ktsAge()`.
+- `store.get/set` (префикс `eblan.kts.`), `count(key, delta)`, `counter(key)`, `setCounter(key, v)` → событие `kts:count {key, value, delta}`.
+- Находки: `secret(id)`, `duck(id)`, `ach(id)`, `skin(id)` (вернёт `true`, если впервые) → события `kts:unlock {kind, id, def, n, total}` и `kts:secret` / `kts:duck` / `kts:ach` / `kts:skin`. `has(kind, id)`, `found(kind)`, `total(kind)` (по числу записей в `secrets`/`ducks`/`achievements`/`skins`).
+- `hash(str)`, `rng(seed)`, `dayRng(salt)` — детерминированно по реальному дню.
+
+Ядро: `G.words.raw/buffer` и событие `type {raw, buffer, char}` на каждый набранный символ; `G.typeWord(text, source)` → событие `word {text, lower, source}` (поле «Секретное слово» в П5 зовёт его); `G.worldToDom(x, alt)` → координаты в CSS-пикселях от левого верхнего угла `#stage`.
+
+### Общие реестры в данных
+
+- `achievements`: `{id: {name, desc, group, icon?, secret?, hint?}}` — объявляет любой пакет в **своём** data-файле; П4 рисует их в «Личном деле»; открытие — `G.kts.ach(id)`.
+- `secrets` (П6, `data/secrets.js`) — фиксированные id, их могут открывать другие пакеты: `wednesday` (жабонька в реальную среду), `gift` (коробка ДР KTS на экране проигрыша, П5), `drullegi` (слово), `trusy` («ХОЧУ ТРУСЫ» капсом), `stopword` (прыжок сверху на голосовое «залогай время»), `meme1156` (смерть ровно в 11:56), `snoozeMeme` (отложить мем-будильник), `goodButton` («Сделать хорошо»), `filter` (заблокировать бота-токсика), `kotzilla` (7 кликов по Котзилле на старте), `inevitable` (кнопка «Уволиться», П5), `plov` (квест), `mordor` (дошёл до горы), `ducks` (все уточки), `vivi` (Виви 10:0). П6 может добавить 2–5 своих на известных мемах (итого 15–25).
+- `ducks` (П6), `skins` (П4: `{id: {name, desc, cond, legendary?}}`; открытие `G.kts.skin(id)`, П4 добавляет в `G.skins` и рисует в `bunny.js`).
+- Счётчики `G.kts.count`: `denis` (тортов съедено), `vivi` (счёт Виви, старт 2), `mordor` (пройдено мировых единиц), `frogs` (сред с жабонькой), `plov` (зацепки).
+
+### События пакетов
+
+- Пикапы — через ядро: событие `pickup` с `p.type`: `cake`, `frog`, `echpochmak`, `chakchak`, `khryuchevo`, `vpn`, `timesheet` (П1); `duck`, `plovClue`, `kazan`, `goodButton` (П6).
+- Препятствия П1: `vacuum`, `voice` (stompable, через `G.modes`).
+- `kts:npc {id, phase}` — П2 (`id: 'toxic'`, `phase: 'enter'|'predict'|'kind'|'dive'|'blocked'|'leave'`, `text`).
+- `kts:event {id, phase: 'start'|'end'}` — `wifi` (П1 ставит, П3/П5/П7 реагируют), `vivi` (П1), `cakeMissed` (П1), `birthday` (П5 на старте в ноябре).
+- Тосты: `G.ui.toast(label, text, {kind})`, виды `kts`, `secret`, `duck` (П5 добавляет стили). П5 сам показывает тост на `kts:secret`, `kts:duck`, `kts:ach`, `kts:skin`.
+- Эффекты (П8): `G.fx.stamp(text, {x, alt, color, rot})`, `G.fx.react(kind, x, alt)` (`fire`, `party`, `heart`), `G.fx.ktsConfetti(n)` — фича-детект у потребителей.

@@ -149,7 +149,7 @@ function makePlanner(G, fps) {
 }
 
 function runScenario(opts) {
-  const { name, seed = 1, width = 900, height = 450, seconds = 120, fps = 30, invincible = false, autopilot = true, chaos = false, bot = 'simple' } = opts;
+  const { name, seed = 1, width = 900, height = 450, seconds = 120, fps = 30, invincible = false, autopilot = true, chaos = false, bot = 'simple', search = '' } = opts;
   const problems = [];
   const warnings = new Map();
   const warn = (k) => warnings.set(k, (warnings.get(k) || 0) + 1);
@@ -479,7 +479,7 @@ function runScenario(opts) {
     },
     document: doc,
     navigator: { userAgent: 'smoke', language: 'ru', maxTouchPoints: 0, vibrate: () => true, clipboard: { writeText: () => Promise.resolve(), readText: () => Promise.reject(new Error('no')) }, share: undefined, hardwareConcurrency: 4 },
-    location: { href: 'https://example.test/', hash: '', search: '', pathname: '/', origin: 'https://example.test' },
+    location: { href: 'https://example.test/' + search, hash: '', search, pathname: '/', origin: 'https://example.test' },
     history: { replaceState() {}, pushState() {} },
     localStorage: storage,
     sessionStorage: storage,
@@ -771,6 +771,8 @@ const scenarios = QUICK
   ? [
       { name: 'quick-play', seconds: 40, chaos: true },
       { name: 'quick-invincible', seconds: 60, invincible: true },
+      { name: 'quick-kts-off', seconds: 30, chaos: true, search: '?kts=off' },
+      { name: 'quick-kts-wednesday', seconds: 40, invincible: true, search: '?date=2026-10-07' },
     ]
   : [
       { name: 'play-desktop', seed: 1, seconds: 240, chaos: false },
@@ -781,6 +783,11 @@ const scenarios = QUICK
       { name: 'planner-phone', seed: 12, width: 343, height: 300, seconds: 300, fps: 60, bot: 'planner' },
       { name: 'planner-wide', seed: 13, width: 1400, height: 420, seconds: 240, fps: 60, bot: 'planner' },
       { name: 'planner-30fps', seed: 14, width: 700, height: 500, seconds: 240, fps: 30, bot: 'planner' },
+      { name: 'kts-off', seed: 21, seconds: 120, chaos: true, search: '?kts=off' },
+      { name: 'kts-wednesday', seed: 22, seconds: 300, invincible: true, fps: 25, search: '?date=2026-10-07' },
+      { name: 'kts-birthday', seed: 23, seconds: 300, invincible: true, fps: 25, search: '?date=2026-11-09' },
+      { name: 'kts-newyear', seed: 24, seconds: 200, chaos: true, search: '?date=2026-12-31&time=23:30' },
+      { name: 'kts-halloween', seed: 25, seconds: 200, chaos: true, search: '?date=2026-10-31' },
     ];
 
 if (require.main !== module) {
